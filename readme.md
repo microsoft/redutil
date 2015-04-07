@@ -34,7 +34,7 @@ func main() {
 // Simple example function that listens for all events broadcast
 // in the channel "chan".
 func listenChannel(c *pubsub.Client) {
-    listener := client.Listen(pubsub.Channel, "chan")
+    listener := c.Listen(pubsub.Channel, "chan")
     defer listener.Unsubscribe()
     for _, message := <- listener.Messages {
         doStuff()
@@ -44,7 +44,7 @@ func listenChannel(c *pubsub.Client) {
 // Example that listens for events that match the pattern
 // "foo:*:bar". Note that we listen to the `PMessages` channel, not `Messages`.
 func listenPattern(c *pubsub.Client) {
-    listener := client.Listen(pubsub.Pattern, "foo:*:bar")
+    listener := c.Listen(pubsub.Pattern, "foo:*:bar")
     defer listener.Unsubscribe()
 
     for _, message := <- listener.PMessages {
