@@ -1,4 +1,4 @@
-# redutil [![Build Status](https://travis-ci.org/MCProHosting/redutil.svg?branch=master)](https://travis-ci.org/MCProHosting/redutil) [![Coverage Status](https://coveralls.io/repos/MCProHosting/redutil/badge.svg?branch=master)](https://coveralls.io/r/MCProHosting/redutil?branch=master) [![godoc reference](https://godoc.org/github.com/mcprohosting/redutil?status.png)][godoc]
+# redutil [![Build Status](https://travis-ci.org/MCProHosting/redutil.svg?branch=master)](https://travis-ci.org/MCProHosting/redutil) [![Coverage Status](https://coveralls.io/repos/MCProHosting/redutil/badge.svg?branch=master)](https://coveralls.io/r/MCProHosting/redutil?branch=master) [![godoc reference](https://godoc.org/github.com/mcprohosting/redutil?status.png)](godoc)
 
 
 This package consists of several utilities to make Redis more easier and consistent in Go.
