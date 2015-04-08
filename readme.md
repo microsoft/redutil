@@ -36,7 +36,7 @@ func main() {
 func listenChannel(c *pubsub.Client) {
     listener := c.Listen(pubsub.Channel, "chan")
     defer listener.Unsubscribe()
-    for _, message := <- listener.Messages {
+    for _, message := range listener.Messages {
         doStuff()
     }
 }
@@ -47,8 +47,12 @@ func listenPattern(c *pubsub.Client) {
     listener := c.Listen(pubsub.Pattern, "foo:*:bar")
     defer listener.Unsubscribe()
 
-    for _, message := <- listener.PMessages {
+    for _, message := range listener.PMessages {
         // You got mail!
     }
 }
 ```
+
+## License
+
+Copyright 2015 by Beam LLC. Distributed under the MIT license.
