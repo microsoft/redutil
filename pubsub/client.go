@@ -154,7 +154,10 @@ func (c *Client) Listener(kind ListenerType, event string) *Listener {
 // connections.
 func (c *Client) TearDown() {
 	c.setState(ClosedState)
-	c.pubsub.Close()
+
+	if c.pubsub != nil {
+		c.pubsub.Close()
+	}
 }
 
 // Gets the current client state.
