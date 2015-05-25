@@ -63,7 +63,7 @@ func TestIncreasesReconnectTimeAndResets(t *testing.T) {
 
 	disrupt(client)
 
-	assert.Equal(t, 0, client.getNextDelay())
+	assert.Equal(t, 0, int(client.getNextDelay()))
 }
 
 func TestUnsubscribe(t *testing.T) {
