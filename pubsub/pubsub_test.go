@@ -20,7 +20,8 @@ func disrupt(client *Client) {
 }
 
 func create(t *testing.T) *Client {
-	client := New("127.0.0.1:6379")
+	client := New(&ConnectionParam{
+		Address: "127.0.0.1:6379"})
 	go client.Connect()
 	client.WaitFor(ConnectedEvent)
 	return client
