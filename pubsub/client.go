@@ -36,6 +36,14 @@ import (
 	"time"
 )
 
+// Used to denote the parameters of the redis connection.
+type ConnectionParam struct {
+	// Host:port
+	Address string
+	// Optional password. Defaults to no authentication.
+	Password string
+}
+
 // The Client is responsible for maintaining a subscribed redis client,
 // reconnecting and resubscribing if it drops.
 type Client struct {
@@ -50,6 +58,8 @@ type Client struct {
 	pubsubLock *sync.Mutex
 	// The address we're connected to
 	address string
+	// Server password. Empty string means no authentication.
+	password string
 	// The subscription client we're currently using.
 	pubsub *redis.PubSubConn
 	// How many times we've tried to reconnect.
@@ -122,11 +132,12 @@ const (
 )
 
 // Creates a new Radix client and subscribes to it.
-func New(address string) *Client {
+func New(conn *ConnectionParam) *Client {
 	client := &Client{
 		Events:      make(chan Event),
 		State:       DisconnectedState,
-		address:     address,
+		address:     conn.Address,
+		password:    conn.Password,
 		subscribed:  map[string][]*Listener{},
 		actionQueue: make(chan task, 10),
 		stateLock:   new(sync.Mutex),
@@ -190,6 +201,12 @@ func (c *Client) setupConnection() error {
 	cnx, err := redis.Dial("tcp", c.address)
 	if err != nil {
 		return err
+	}
+	if c.password != "" {
+		if _, err := cnx.Do("AUTH", c.password); err != nil {
+			cnx.Close()
+			return err
+		}
 	}
 
 	c.pubsubLock.Lock()
