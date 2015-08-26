@@ -15,15 +15,18 @@ func publish(event string, data string) {
 }
 
 func disrupt(client *Client) {
-	client.pubsub.Conn.Close()
+	client.tasks <- task{Action: disruptAction}
 	client.WaitFor(ConnectedEvent)
 }
 
 func create(t *testing.T) *Client {
-	client := New(&ConnectionParam{
-		Address: "127.0.0.1:6379"})
+	client := New(ConnectionParam{
+		Address: "127.0.0.1:6379",
+		Timeout: time.Second,
+	})
 	go client.Connect()
 	client.WaitFor(ConnectedEvent)
+
 	return client
 }
 
@@ -46,7 +49,10 @@ func TestReconnects(t *testing.T) {
 	publish("foobar", "heyo!")
 	assert.Equal(t, "heyo!", string((<-listener.Messages).Data))
 
-	disrupt(client)
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		disrupt(client)
+	}()
 
 	client.WaitFor(SubscribeEvent)
 	publish("foobar", "we're back!")
@@ -59,12 +65,12 @@ func TestIncreasesReconnectTimeAndResets(t *testing.T) {
 	client.Listener(Channel, "foobar")
 
 	for i, prev := 0, -1; i < 5; i++ {
-		assert.True(t, time.Duration(prev) < client.getNextDelay())
+		assert.True(t, time.Duration(prev) < client.policy.Next())
 	}
 
 	disrupt(client)
 
-	assert.Equal(t, 0, int(client.getNextDelay()))
+	assert.Equal(t, 0, int(client.policy.Next()))
 }
 
 func TestUnsubscribe(t *testing.T) {
@@ -81,8 +87,9 @@ func TestUnsubscribe(t *testing.T) {
 	listener.Unsubscribe()
 	client.WaitFor(UnsubscribeEvent)
 	publish("foobar", "heyo!")
+
 	select {
-	case packet := <-client.Events:
+	case packet := <-client.OnChannel(AnyEvent):
 		assert.Fail(t, fmt.Sprintf("Got 'some' packet after unsubscribe: %#v", packet))
 	case <-time.After(time.Millisecond * 100):
 	}
@@ -92,7 +99,7 @@ func TestUnsubscribe(t *testing.T) {
 	// Make sure we don't resubscribe after a disruption.
 	publish("foobar", "heyo!")
 	select {
-	case packet := <-client.Events:
+	case packet := <-client.OnChannel(AnyEvent):
 		assert.Fail(t, fmt.Sprintf("Got 'some' packet after unsubscribe reconnect: %#v", packet))
 	case <-time.After(time.Millisecond * 100):
 	}
@@ -100,6 +107,8 @@ func TestUnsubscribe(t *testing.T) {
 
 func TestDoesNotReconnectAfterGracefulClose(t *testing.T) {
 	client := create(t)
+	defer client.TearDown()
+
 	client.Listener(Channel, "foobar")
 
 	reconnect := make(chan bool)
@@ -129,7 +138,7 @@ func TestPatternConnects(t *testing.T) {
 	client.WaitFor(UnsubscribeEvent)
 	publish("foo:2:bar", "oh no!")
 	select {
-	case packet := <-client.Events:
+	case packet := <-client.OnChannel(AnyEvent):
 		assert.Fail(t, fmt.Sprintf("Got 'some' packet after unsubscribe: %#v", packet))
 	case <-time.After(time.Millisecond * 100):
 	}
