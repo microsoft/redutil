@@ -10,9 +10,9 @@ type Listener struct {
 	// and its type
 	Type ListenerType
 	// The channel we send events down for plain subscriptions.
-	Messages chan *redis.Message
+	Messages chan redis.Message
 	// The channel we send events down for pattern subscriptions.
-	PMessages chan *redis.PMessage
+	PMessages chan redis.PMessage
 	// The client it's attached to.
 	Client *Client
 	// Whether its active. True by default, false after unsubscribed.

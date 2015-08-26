@@ -5,35 +5,37 @@
 //
 // Basic usage, prints any messages it gets in the "foobar" channel:
 //
-// 	client := NewPubsub("127.0.0.1:6379")
-// 	defer client.TearDown()
-// 	go client.Connect()
+//  client := NewPubsub("127.0.0.1:6379")
+//  defer client.TearDown()
+//  go client.Connect()
 //
-// 	listener := client.Listener(Channel, "foobar")
-// 	for {
-// 		fmt.Println(<-listener.Channel)
-// 	}
+//  listener := client.Listener(Channel, "foobar")
+//  for {
+//      fmt.Println(<-listener.Channel)
+//  }
 //
 // Events are emitted down the client's "Event" channel. If you wanted to
 // wait until the client was open (not necessary, but may be useful):
 //
-// 	client := NewPubsub("127.0.0.1:6379")
-// 	go client.Connect()
-// 	client.WaitFor(ConnectedEvent)
+//  client := NewPubsub("127.0.0.1:6379")
+//  go client.Connect()
+//  client.WaitFor(ConnectedEvent)
 //
 // You can also subscribe to patterns and unsubscribe, of course:
 //
-// 	listener := client.Listener(Pattern, "foo:*:bar")
-// 	doStuff()
-// 	listener.Unsubscribe()
-//
+//  listener := client.Listener(Pattern, "foo:*:bar")
+//  doStuff()
+//  listener.Unsubscribe()
+
 package pubsub
 
 import (
-	"github.com/garyburd/redigo/redis"
-	"math"
+	"net"
 	"sync"
 	"time"
+
+	"github.com/WatchBeam/fsm"
+	"github.com/garyburd/redigo/redis"
 )
 
 // Used to denote the parameters of the redis connection.
@@ -42,34 +44,11 @@ type ConnectionParam struct {
 	Address string
 	// Optional password. Defaults to no authentication.
 	Password string
-}
-
-// The Client is responsible for maintaining a subscribed redis client,
-// reconnecting and resubscribing if it drops.
-type Client struct {
-	// Event channel you can pull from to know what's happening in the app.
-	// By default this is a buffered channel with a size of 1.
-	Events chan Event
-	// The current state that the client is in.
-	State State
-	// Lock used to force thread safety on the state.
-	stateLock *sync.Mutex
-	// Lock used to force thread safety on the pubsub client.
-	pubsubLock *sync.Mutex
-	// The address we're connected to
-	address string
-	// Server password. Empty string means no authentication.
-	password string
-	// The subscription client we're currently using.
-	pubsub *redis.PubSubConn
-	// How many times we've tried to reconnect.
-	retries uint
-	// A list of events that we're subscribed to. If the connection closes,
-	// we'll reestablish it and resubscribe to events.
-	subscribed map[string][]*Listener
-	// A queue so that we can asynchronously send "todos" to the main
-	// subscribe routine to listen and unsubscribe from events.
-	actionQueue chan task
+	// Policy to use for reconnections (defaults to
+	// LogReconnectPolicy with a base of 10 and factor of 1 ms)
+	Policy ReconnectPolicy
+	// Dial timeout for redis (defaults to no timeout)
+	Timeout time.Duration
 }
 
 // Used to denote the type of listener - channel or pattern.
@@ -78,23 +57,6 @@ type ListenerType uint8
 const (
 	Channel ListenerType = iota
 	Pattern
-)
-
-// The event is sent down the client's Events channel when something happens!
-type Event struct {
-	Type   EventType
-	Packet interface{}
-}
-
-// Events that are sent down the "Events" channel.
-type EventType uint8
-
-const (
-	ConnectedEvent EventType = iota
-	DisconnectedEvent
-	MessageEvent
-	SubscribeEvent
-	UnsubscribeEvent
 )
 
 // Tasks we send to the main pubsub thread to subscribe/unsubscribe.
@@ -113,35 +75,44 @@ type action uint8
 const (
 	subscribeAction action = iota
 	unsubscribeAction
+	disruptAction
 )
 
-// Client state information
-type State uint8
+// The Client is responsible for maintaining a subscribed redis client,
+// reconnecting and resubscribing if it drops.
+type Client struct {
+	eventEmitter
+	// The current state that the client is in.
+	state     *fsm.Machine
+	stateLock *sync.Mutex
+	// Connection params we're subbed to.
+	conn ConnectionParam
+	// The subscription client we're currently using.
+	pubsub *redis.PubSubConn
+	// A list of events that we're subscribed to. If the connection closes,
+	// we'll reestablish it and resubscribe to events.
+	subscribed map[string][]*Listener
+	// Reconnection policy.
+	policy ReconnectPolicy
+	// Channel of sub/unsub tasks
+	tasks chan task
+}
 
-const (
-	// Not currently connected to a server.
-	DisconnectedState State = iota
-	// We were connected, but closed gracefully.
-	ClosedState
-	// Currently in the process of trying to connect to a server.
-	ConnectingState
-	// Connected to a server, but not yet linked as a pubsub client.
-	ConnectedState
-	// Fully connected and listening for events.
-	BootedState
-)
-
-// Creates a new Radix client and subscribes to it.
-func New(conn *ConnectionParam) *Client {
+// Creates and returns a new pubsub client client and subscribes to it.
+func New(conn ConnectionParam) *Client {
 	client := &Client{
-		Events:      make(chan Event),
-		State:       DisconnectedState,
-		address:     conn.Address,
-		password:    conn.Password,
-		subscribed:  map[string][]*Listener{},
-		actionQueue: make(chan task, 10),
-		stateLock:   new(sync.Mutex),
-		pubsubLock:  new(sync.Mutex),
+		eventEmitter: newEventEmitter(),
+		state:        blueprint.Machine(),
+		stateLock:    new(sync.Mutex),
+		conn:         conn,
+		subscribed:   map[string][]*Listener{},
+		tasks:        make(chan task, 128),
+	}
+
+	if conn.Policy != nil {
+		client.policy = conn.Policy
+	} else {
+		client.policy = &LogReconnectPolicy{Base: 10, Factor: time.Millisecond}
 	}
 
 	return client
@@ -152,8 +123,8 @@ func (c *Client) Listener(kind ListenerType, event string) *Listener {
 	listener := &Listener{
 		Type:      kind,
 		Event:     event,
-		Messages:  make(chan *redis.Message),
-		PMessages: make(chan *redis.PMessage),
+		Messages:  make(chan redis.Message),
+		PMessages: make(chan redis.PMessage),
 		Client:    c,
 	}
 	c.Subscribe(listener)
@@ -161,116 +132,131 @@ func (c *Client) Listener(kind ListenerType, event string) *Listener {
 	return listener
 }
 
-// Tears down the client - closes the connection and stops listening for
-// connections.
-func (c *Client) TearDown() {
-	c.setState(ClosedState)
-
-	if c.pubsub != nil {
-		c.pubsub.Close()
-	}
-}
-
 // Gets the current client state.
-func (c *Client) GetState() State {
+func (c *Client) GetState() uint8 {
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
 
-	return c.State
+	return c.state.State()
 }
 
 // Sets the client state in a thread-safe manner.
-func (c *Client) setState(s State) {
+func (c *Client) setState(s uint8) error {
 	c.stateLock.Lock()
-	c.State = s
+	err := c.state.Goto(s)
 	c.stateLock.Unlock()
-}
 
-// Blocks until a certain event type is emitted on the client.
-func (c *Client) WaitFor(event EventType) Event {
-	for {
-		if ev := <-c.Events; ev.Type == event {
-			return ev
-		}
-	}
-}
-
-// Creates a connection for the client, based on the address. Returns
-// an error if there was any issues.
-func (c *Client) setupConnection() error {
-	cnx, err := redis.Dial("tcp", c.address)
 	if err != nil {
 		return err
 	}
-	if c.password != "" {
-		if _, err := cnx.Do("AUTH", c.password); err != nil {
-			cnx.Close()
-			return err
-		}
+
+	switch s {
+	case ConnectedState:
+		c.emit(ConnectedEvent, nil)
+	case DisconnectedState:
+		c.emit(DisconnectedEvent, nil)
+	case ClosingState:
+		c.emit(ClosingEvent, nil)
+	case ClosedState:
+		c.emit(ClosedEvent, nil)
 	}
-
-	c.pubsubLock.Lock()
-	c.pubsub = &redis.PubSubConn{Conn: cnx}
-	c.pubsubLock.Unlock()
-
-	c.retries = 0
-	c.setState(ConnectedState)
-	c.emit(Event{Type: ConnectedEvent})
 
 	return nil
 }
 
-// Should be called when the client is opened. Recieves events, reconnects,
-// and dispatches incoming messages.
-func (c *Client) boot() {
-	c.setState(BootedState)
+// Tries to reconnect to pubsub, looping until we're able to do so
+// successfully. This must be called to activate the client.
+func (c *Client) Connect() {
+	for c.GetState() == DisconnectedState {
+		go c.resubscribe()
+		c.doConnection()
+		time.Sleep(c.policy.Next())
+	}
 
-	halt := make(chan bool, 1)
-	ch := make(chan interface{})
+	c.setState(ClosedState)
+}
+
+func (c *Client) doConnection() {
+	var cnx redis.Conn
+	var err error
+	if c.conn.Timeout > 0 {
+		cnx, err = redis.DialTimeout("tcp", c.conn.Address,
+			c.conn.Timeout, c.conn.Timeout, c.conn.Timeout)
+	} else {
+		cnx, err = redis.Dial("tcp", c.conn.Address)
+	}
+
+	if err != nil {
+		c.emit(ErrorEvent, err)
+		return
+	}
+
+	if c.conn.Password != "" {
+		if _, err := cnx.Do("AUTH", c.conn.Password); err != nil {
+			c.emit(ErrorEvent, err)
+			c.setState(ClosingState)
+		}
+	}
+
+	c.pubsub = &redis.PubSubConn{Conn: cnx}
+	c.policy.Reset()
+	c.setState(ConnectedState)
+
+	end := make(chan bool)
 	go func() {
-
 		for {
-			c.pubsubLock.Lock()
-			e := c.pubsub.Receive()
-			c.pubsubLock.Unlock()
-
-			if !<-halt {
-				ch <- e
-			} else {
+			select {
+			case <-end:
 				return
+			case t := <-c.tasks:
+				c.workOnTask(t)
 			}
 		}
 	}()
 
-	halt <- false
-	for c.GetState() == BootedState {
-
-		// Listen for both pubsub receives and new things we have to
-		// subscribe to...
-		select {
-		case e := <-c.actionQueue:
-			c.workOnTask(e)
-		case e := <-ch:
-			halt <- c.dispatchReply(e)
+READ:
+	for c.GetState() == ConnectedState {
+		switch reply := c.pubsub.Receive().(type) {
+		case redis.Message:
+			go c.dispatchMessage(reply)
+		case redis.PMessage:
+			go c.dispatchPMessage(reply)
+		case redis.Subscription:
+			switch reply.Kind {
+			case "subscribe", "psubscribe":
+				c.emit(SubscribeEvent, reply)
+			case "unsubscribe", "punsubscribe":
+				c.emit(UnsubscribeEvent, reply)
+			}
+		case error:
+			if err, ok := reply.(net.Error); ok && err.Timeout() {
+				// don't emit error for time outs
+			} else if c.GetState() != ConnectedState {
+				// if we already closed, don't really care
+			} else {
+				c.emit(ErrorEvent, reply)
+			}
+			break READ
 		}
 	}
+
+	end <- true
+	c.pubsub.Close()
+	c.setState(DisconnectedState)
 }
 
 // Takes a task, modifies redis and the internal subscribed registery.
 // This is done here (called in boot()) since Go's maps are not thread safe.
 func (c *Client) workOnTask(t task) {
-	event := t.Listener.Event
-
-	// If the action is subscribe...
-	if t.Action == subscribeAction {
-
+	switch t.Action {
+	case subscribeAction:
+		event := t.Listener.Event
 		// Check to see if it already exists in the subscribed map.
 		// If not, then we need to create a new listener list and
 		// start listening on the pubsub client. Otherwise just
 		// append it.
 		if _, exists := c.subscribed[event]; !exists || t.Force {
 			c.subscribed[event] = []*Listener{t.Listener}
-
 			switch t.Listener.Type {
 			case Channel:
 				c.pubsub.Subscribe(event)
@@ -280,7 +266,8 @@ func (c *Client) workOnTask(t task) {
 		} else {
 			c.subscribed[event] = append(c.subscribed[event], t.Listener)
 		}
-	} else {
+	case unsubscribeAction:
+		event := t.Listener.Event
 		// Look for the listener in the subscribed list and,
 		// once found, remove it.
 		list := c.subscribed[event]
@@ -302,93 +289,15 @@ func (c *Client) workOnTask(t task) {
 			}
 			delete(c.subscribed, event)
 		}
-	}
-}
-
-// Takes a reply from Redis' recieve and dispatches the
-// appropriate message. Returns whether the event loop should be halted.
-func (c *Client) dispatchReply(r interface{}) bool {
-	switch reply := r.(type) {
-	case redis.Message:
-		c.dispatchMessage(&reply)
-	case redis.PMessage:
-		c.dispatchPMessage(&reply)
-	case redis.Subscription:
-		switch reply.Kind {
-		case "subscribe", "psubscribe":
-			c.emit(Event{Type: SubscribeEvent, Packet: &reply})
-		case "unsubscribe", "punsubscribe":
-			c.emit(Event{Type: UnsubscribeEvent, Packet: &reply})
-		}
-	case error:
-		c.handleError(reply)
-		return true
-	}
-
-	return false
-}
-
-// Emits a non-blocking event on the client.
-func (c *Client) emit(event Event) {
-	select {
-	case c.Events <- event:
+	case disruptAction:
+		c.pubsub.Conn.Close()
 	default:
-	}
-}
-
-// Returns the delay time before we should try to reconnect. Increases
-// in log time.
-func (c *Client) getNextDelay() time.Duration {
-	c.retries += 1
-	return time.Duration(math.Log(float64(c.retries)) * float64(time.Millisecond))
-}
-
-// Returns whether the pubsub client is in a state that you can connect to.
-func (c *Client) clientAvailable() bool {
-	s := c.GetState()
-	return s == ConnectedState || s == BootedState
-}
-
-// Tries to reconnect to pubsub, looping until we're
-// able to do so successfully.
-func (c *Client) Connect() {
-	c.setState(ConnectingState)
-
-	for !c.clientAvailable() {
-		time.Sleep(c.getNextDelay())
-		if c.GetState() == ClosedState {
-			return
-		}
-
-		c.setupConnection()
-	}
-
-	c.resubscribe()
-	c.boot()
-}
-
-// Resubscribes to all Redis events. Good to do after a disconnection.
-func (c *Client) resubscribe() {
-	for _, events := range c.subscribed {
-		// We only need to subscribe on one event, so that the Redis
-		// connection gets registered. We don't care about the others.
-		c.actionQueue <- task{Listener: events[0], Action: subscribeAction, Force: true}
-	}
-}
-
-// Handles error that occur in redis pubsub. Reconnects if necessary.
-func (c *Client) handleError(err error) {
-	c.emit(Event{Type: DisconnectedEvent, Packet: err})
-
-	if c.GetState() != DisconnectedState {
-		c.setState(DisconnectedState)
-		c.pubsub.Close()
-		c.Connect()
+		panic("unknown task")
 	}
 }
 
 // Takes in a Redis message and sends it out to any "listening" channels.
-func (c *Client) dispatchMessage(message *redis.Message) {
+func (c *Client) dispatchMessage(message redis.Message) {
 	if listeners, exists := c.subscribed[message.Channel]; exists {
 		for _, l := range listeners {
 			l.Messages <- message
@@ -397,7 +306,7 @@ func (c *Client) dispatchMessage(message *redis.Message) {
 }
 
 // Takes in a Redis pmessage and sends it out to any "listening" channels.
-func (c *Client) dispatchPMessage(message *redis.PMessage) {
+func (c *Client) dispatchPMessage(message redis.PMessage) {
 	if listeners, exists := c.subscribed[message.Pattern]; exists {
 		for _, l := range listeners {
 			l.PMessages <- message
@@ -405,16 +314,42 @@ func (c *Client) dispatchPMessage(message *redis.PMessage) {
 	}
 }
 
+// Resubscribes to all Redis events. Good to do after a disconnection.
+func (c *Client) resubscribe() {
+	// Swap so that if we reconnect before all tasks are done,
+	// we don't duplicate things.
+	subs := c.subscribed
+	c.subscribed = map[string][]*Listener{}
+
+	for _, events := range subs {
+		// We only need to subscribe on one event, so that the Redis
+		// connection gets registered. We don't care about the others.
+		c.tasks <- task{Listener: events[0], Action: subscribeAction, Force: true}
+	}
+}
+
+// Tears down the client - closes the connection and stops
+// listening for connections.
+func (c *Client) TearDown() {
+	if c.GetState() != ConnectedState {
+		return
+	}
+	c.setState(ClosingState)
+	c.tasks <- task{Action: disruptAction}
+
+	c.WaitFor(ClosedEvent)
+}
+
 // Subscribes to a Redis event. Strings are sent back down the listener
 // channel when they come in, and
 func (c *Client) Subscribe(listener *Listener) {
 	listener.Active = true
-	c.actionQueue <- task{Listener: listener, Action: subscribeAction}
+	c.tasks <- task{Listener: listener, Action: subscribeAction}
 }
 
 // Removes the listener from the list of subscribers. If it's the last one
 // listening to that Redis event, we unsubscribe entirely.
 func (c *Client) Unsubscribe(listener *Listener) {
 	listener.Active = false
-	c.actionQueue <- task{Listener: listener, Action: unsubscribeAction}
+	c.tasks <- task{Listener: listener, Action: unsubscribeAction}
 }
