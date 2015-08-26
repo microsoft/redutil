@@ -23,7 +23,7 @@ func main() {
     c := pubsub.New(pubsub.ConnectionParam{
         Address: "127.0.0.1:6379",
         // optional password
-        Password: "secret"
+        Password: "secret",
     })
     go client.Connect()
     defer c.TearDown()
