@@ -20,7 +20,7 @@ import (
 func main() {
     // Create a new pubsub client. This will create and manage connections,
     // even if you disconnect.
-    c := pubsub.New(&pubsub.ConnectionParam{
+    c := pubsub.New(pubsub.ConnectionParam{
         Address: "127.0.0.1:6379",
         // optional password
         Password: "secret"
