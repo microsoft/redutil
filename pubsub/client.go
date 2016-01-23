@@ -161,6 +161,8 @@ func (c *Client) Connect() {
 
 func (c *Client) doConnection() {
 	cnx := c.pool.Get()
+	defer cnx.Close()
+
 	err := cnx.Err()
 
 	if err != nil {
