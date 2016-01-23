@@ -2,10 +2,12 @@ package pubsub
 
 import (
 	"fmt"
-	"github.com/garyburd/redigo/redis"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/WatchBeam/redutil/conn"
+	"github.com/garyburd/redigo/redis"
+	"github.com/stretchr/testify/assert"
 )
 
 func publish(event string, data string) {
@@ -20,10 +22,10 @@ func disrupt(client *Client) {
 }
 
 func create(t *testing.T) *Client {
-	client := New(ConnectionParam{
+	client := New(conn.New(conn.ConnectionParam{
 		Address: "127.0.0.1:6379",
 		Timeout: time.Second,
-	})
+	}, 1))
 	go client.Connect()
 	client.WaitFor(ConnectedEvent)
 
