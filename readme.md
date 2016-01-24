@@ -14,7 +14,7 @@ package main
 
 import (
     "time"
-    "github.com/mcprohosting/redutil/pubsub"
+    "github.com/watchbeam/redutil/pubsub"
 )
 
 func main() {
@@ -60,4 +60,4 @@ func listenPattern(c *pubsub.Client) {
 
 ## License
 
-Copyright 2015 by Beam LLC. Distributed under the MIT license.
+Copyright 2016 by Beam LLC. Distributed under the MIT license.
