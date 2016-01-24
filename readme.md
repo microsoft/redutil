@@ -14,17 +14,18 @@ package main
 
 import (
     "time"
-    "github.com/mcprohosting/redutil/pubsub"
+    "github.com/WatchBeam/redutil/conn"
+    "github.com/WatchBeam/redutil/pubsub"
 )
 
 func main() {
     // Create a new pubsub client. This will create and manage connections,
     // even if you disconnect.
-    c := pubsub.New(pubsub.ConnectionParam{
+    c := pubsub.New(conn.New(conn.ConnectionParam{
         Address: "127.0.0.1:6379",
         // optional password
         Password: "secret",
-    })
+    }, 1))
     go client.Connect()
     defer c.TearDown()
 
@@ -60,4 +61,4 @@ func listenPattern(c *pubsub.Client) {
 
 ## License
 
-Copyright 2015 by Beam LLC. Distributed under the MIT license.
+Copyright 2015-2016 by Beam LLC. Distributed under the MIT license.

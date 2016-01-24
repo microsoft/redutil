@@ -5,7 +5,9 @@
 //
 // Basic usage, prints any messages it gets in the "foobar" channel:
 //
-//  client := NewPubsub("127.0.0.1:6379")
+//  client := pubsub.New(conn.New(conn.ConnectionParam{
+//	Address: "127.0.0.1:6379"
+//  }, 1))
 //  defer client.TearDown()
 //  go client.Connect()
 //
@@ -35,21 +37,9 @@ import (
 	"time"
 
 	"github.com/WatchBeam/fsm"
+	"github.com/WatchBeam/redutil/conn"
 	"github.com/garyburd/redigo/redis"
 )
-
-// Used to denote the parameters of the redis connection.
-type ConnectionParam struct {
-	// Host:port
-	Address string
-	// Optional password. Defaults to no authentication.
-	Password string
-	// Policy to use for reconnections (defaults to
-	// LogReconnectPolicy with a base of 10 and factor of 1 ms)
-	Policy ReconnectPolicy
-	// Dial timeout for redis (defaults to no timeout)
-	Timeout time.Duration
-}
 
 // Used to denote the type of listener - channel or pattern.
 type ListenerType uint8
@@ -85,37 +75,30 @@ type Client struct {
 	// The current state that the client is in.
 	state     *fsm.Machine
 	stateLock *sync.Mutex
-	// Connection params we're subbed to.
-	conn ConnectionParam
+	// Connection we're subbed to.
+	pool *redis.Pool
 	// The subscription client we're currently using.
 	pubsub *redis.PubSubConn
 	// A list of events that we're subscribed to. If the connection closes,
 	// we'll reestablish it and resubscribe to events.
 	subscribed map[string][]*Listener
-	// Reconnection policy.
-	policy ReconnectPolicy
+	// Reconnection policy
+	policy conn.ReconnectPolicy
 	// Channel of sub/unsub tasks
 	tasks chan task
 }
 
 // Creates and returns a new pubsub client client and subscribes to it.
-func New(conn ConnectionParam) *Client {
-	client := &Client{
+func New(pool *redis.Pool, reconnectPolicy conn.ReconnectPolicy) *Client {
+	return &Client{
 		eventEmitter: newEventEmitter(),
 		state:        blueprint.Machine(),
 		stateLock:    new(sync.Mutex),
-		conn:         conn,
+		pool:         pool,
 		subscribed:   map[string][]*Listener{},
+		policy:       reconnectPolicy,
 		tasks:        make(chan task, 128),
 	}
-
-	if conn.Policy != nil {
-		client.policy = conn.Policy
-	} else {
-		client.policy = &LogReconnectPolicy{Base: 10, Factor: time.Millisecond}
-	}
-
-	return client
 }
 
 // Convenience function to create a new listener for an event.
@@ -177,25 +160,14 @@ func (c *Client) Connect() {
 }
 
 func (c *Client) doConnection() {
-	var cnx redis.Conn
-	var err error
-	if c.conn.Timeout > 0 {
-		cnx, err = redis.DialTimeout("tcp", c.conn.Address,
-			c.conn.Timeout, c.conn.Timeout, c.conn.Timeout)
-	} else {
-		cnx, err = redis.Dial("tcp", c.conn.Address)
-	}
+	cnx := c.pool.Get()
+	defer cnx.Close()
+
+	err := cnx.Err()
 
 	if err != nil {
 		c.emit(ErrorEvent, err)
 		return
-	}
-
-	if c.conn.Password != "" {
-		if _, err := cnx.Do("AUTH", c.conn.Password); err != nil {
-			c.emit(ErrorEvent, err)
-			c.setState(ClosingState)
-		}
 	}
 
 	c.pubsub = &redis.PubSubConn{Conn: cnx}

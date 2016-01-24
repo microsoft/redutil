@@ -2,6 +2,13 @@
 
 ## pubsub
 
+### 2.1 (01-23-2016)
+
+ * **Breaking Change**: `ConnectionParam` has moved from the `pubsub` package to
+   the `conn` package.
+ * **Breaking Change**: `pubsub.New` no longer takes a `ConnectionParam`, rather
+   it takes a `*redis.Pool` and a `conn.ReconnectPolicy`.
+
 ### 2.0 (25-08-2015) rc
 
  * **Breaking Change**: New() now takes a ConnectionParam value rather than a pointer.
