@@ -60,4 +60,4 @@ func listenPattern(c *pubsub.Client) {
 
 ## License
 
-Copyright 2015 by Beam LLC. Distributed under the MIT license.
+Copyright 2016 by Beam LLC. Distributed under the MIT license.
