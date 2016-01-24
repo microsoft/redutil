@@ -14,7 +14,7 @@ package main
 
 import (
     "time"
-    "github.com/mcprohosting/redutil/pubsub"
+    "github.com/watchbeam/redutil/pubsub"
 )
 
 func main() {
