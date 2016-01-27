@@ -2,6 +2,9 @@
 
 ## pubsub
 
+### 2.2 (01-26-2016)
+ * Implement the `heartbeat` package.
+
 ### 2.1 (01-23-2016)
 
  * **Breaking Change**: `ConnectionParam` has moved from the `pubsub` package to
