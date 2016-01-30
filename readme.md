@@ -14,8 +14,8 @@ package main
 
 import (
     "time"
-    "github.com/WatchBeam/redutil/conn"
-    "github.com/WatchBeam/redutil/pubsub"
+    "gopkg.in/WatchBeam/redutil.v2/conn"
+    "gopkg.in/WatchBeam/redutil.v2/pubsub"
 )
 
 func main() {
