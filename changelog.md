@@ -2,6 +2,9 @@
 
 ## pubsub
 
+### 2.3 (01-30-2016)
+ * Implement the `queue` package.
+
 ### 2.2 (01-26-2016)
  * Implement the `heartbeat` package.
 
