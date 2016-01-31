@@ -22,7 +22,7 @@ func TestValidConnections(t *testing.T) {
 func TestInvalidConnection(t *testing.T) {
 	pool, _ := New(ConnectionParam{
 		Address: "127.0.0.2:6379",
-		Timeout: 50 * time.Millisecond,
+		Timeout: time.Nanosecond,
 	}, 1)
 
 	err := pool.Get().Err()
