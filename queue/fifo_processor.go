@@ -11,7 +11,7 @@ var FIFO Processor = &fifoProcessor{}
 // of the Redis structure using RPUSH, and returns any errors encountered while
 // runnning that command.
 func (l *fifoProcessor) Push(cnx redis.Conn, key string, payload []byte) (err error) {
-	_, err = cnx.Do("RPUSH", key, payload)
+	_, err = cnx.Do("LPUSH", key, payload)
 	return
 }
 
@@ -26,7 +26,7 @@ func (l *fifoProcessor) Push(cnx redis.Conn, key string, payload []byte) (err er
 // If an item can sucessfully be removed from the keyspace, it is returned
 // without error.
 func (l *fifoProcessor) Pull(cnx redis.Conn, key string) ([]byte, error) {
-	slices, err := redis.ByteSlices(cnx.Do("BLPOP", key, 1))
+	slices, err := redis.ByteSlices(cnx.Do("BRPOP", key, 1))
 	if err == redis.ErrNil {
 		return nil, nil
 	}
@@ -36,4 +36,10 @@ func (l *fifoProcessor) Pull(cnx redis.Conn, key string) ([]byte, error) {
 	}
 
 	return slices[1], nil
+}
+
+// Removes the first element from the source list and adds it to the end
+// of the destination list. ErrNil is returns when the source is empty.
+func (f *fifoProcessor) Concat(cnx redis.Conn, src, dest string) (err error) {
+	return rlConcat(cnx, src, dest)
 }

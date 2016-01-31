@@ -37,3 +37,9 @@ func (l *lifoProcessor) Pull(cnx redis.Conn, key string) ([]byte, error) {
 
 	return slices[1], nil
 }
+
+// Removes the first element from the source list and adds it to the end
+// of the destination list. ErrNil is returns when the source is empty.
+func (l *lifoProcessor) Concat(cnx redis.Conn, src, dest string) (err error) {
+	return rlConcat(cnx, src, dest)
+}

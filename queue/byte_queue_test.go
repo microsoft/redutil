@@ -27,6 +27,11 @@ func (m *MockProcessor) Pull(cnx redis.Conn, key string) ([]byte, error) {
 	return args.Get(0).([]byte), args.Error(1)
 }
 
+func (m *MockProcessor) Concat(cnx redis.Conn, src, dest string) error {
+	args := m.Called(cnx, src, dest)
+	return args.Error(0)
+}
+
 type ByteQueueSuite struct {
 	*test.RedisSuite
 }
@@ -49,7 +54,7 @@ func (suite *ByteQueueSuite) TestPushDelegatesToProcesor() {
 	processor := &MockProcessor{}
 	processor.
 		On("Push",
-		mock.Anything, "foo", []byte("payload")).
+			mock.Anything, "foo", []byte("payload")).
 		Return(nil)
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
@@ -63,7 +68,7 @@ func (suite *ByteQueueSuite) TestPushPropogatesErrors() {
 	processor := &MockProcessor{}
 	processor.
 		On("Push",
-		mock.Anything, "foo", []byte("payload")).
+			mock.Anything, "foo", []byte("payload")).
 		Return(errors.New("error"))
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
@@ -89,4 +94,72 @@ func (suite *ByteQueueSuite) TestPullDelegatesToProcessor() {
 	defer q.Close()
 
 	suite.Assert().Equal([]byte("bar"), <-q.In())
+}
+
+func (suite *ByteQueueSuite) TestConcatsSuccessfully() {
+	processor := &MockProcessor{}
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(nil).Once()
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(redis.ErrNil).Once()
+
+	q := queue.NewByteQueue(suite.Pool, "foo")
+	defer q.Close()
+
+	q.SetProcessor(processor)
+	suite.Assert().Nil(q.Concat("bar"))
+
+	processor.AssertExpectations(suite.T())
+}
+
+func (suite *ByteQueueSuite) TestConcatAbortsOnCommandError() {
+	err := redis.Error("oh no!")
+	processor := &MockProcessor{}
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(err).Once()
+
+	q := queue.NewByteQueue(suite.Pool, "foo")
+	defer q.Close()
+
+	q.SetProcessor(processor)
+	suite.Assert().Equal(q.Concat("bar"), err)
+
+	processor.AssertExpectations(suite.T())
+}
+
+func (suite *ByteQueueSuite) TestConcatRetriesOnCnxError() {
+	processor := &MockProcessor{}
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(errors.New("some net error or something")).Once()
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(redis.ErrNil).Once()
+
+	q := queue.NewByteQueue(suite.Pool, "foo")
+	defer q.Close()
+
+	q.SetProcessor(processor)
+	suite.Assert().Nil(q.Concat("bar"))
+
+	processor.AssertExpectations(suite.T())
+}
+
+func (suite *ByteQueueSuite) TestConcatAbortsOnTooManyErrors() {
+	err := errors.New("some net error or something")
+	processor := &MockProcessor{}
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(err).Times(3)
+
+	q := queue.NewByteQueue(suite.Pool, "foo")
+	defer q.Close()
+
+	q.SetProcessor(processor)
+	suite.Assert().Equal(q.Concat("bar"), err)
+
+	processor.AssertExpectations(suite.T())
 }
