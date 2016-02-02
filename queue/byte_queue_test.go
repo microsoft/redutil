@@ -96,7 +96,7 @@ func (suite *ByteQueueSuite) TestPullDelegatesToProcessor() {
 	suite.Assert().Equal([]byte("bar"), <-q.In())
 }
 
-func (suite *ByteQueueSuite) TestConcatsSuccessfully() {
+func (suite *ByteQueueSuite) TestConcatsDelegatesToProcessor() {
 	processor := &MockProcessor{}
 	processor.On("Concat",
 		mock.Anything, "bar", "foo").
