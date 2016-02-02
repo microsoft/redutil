@@ -12,6 +12,10 @@ type Processor interface {
 
 	// Pull pulls a given `payload` from the keyspace at `key` over the
 	// given `redis.Conn`. This function should block until a timeout has
-	// elapsed.
+	// elapsed, or an item is available.
 	Pull(conn redis.Conn, key string) (payload []byte, err error)
+
+	// Moves all elements from the src queue to the end of the destination
+	// It should return a redis.ErrNil when the source queue is empty.
+	Concat(conn redis.Conn, src, dest string) (err error)
 }
