@@ -8,6 +8,7 @@ import (
 	"github.com/WatchBeam/redutil/conn"
 	"github.com/WatchBeam/redutil/queue"
 	"github.com/WatchBeam/redutil/test"
+	"github.com/garyburd/redigo/redis"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 )
@@ -53,4 +54,56 @@ func (suite *ByteQueueSuite) TestPullDelegatesToProcessor() {
 
 	suite.Assert().Equal([]byte("bar"), payload)
 	suite.Assert().Equal("error", err.Error())
+}
+
+func (suite *ByteQueueSuite) TestConcatsDelegatesToProcessor() {
+	processor := &MockProcessor{}
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(nil).Once()
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(redis.ErrNil).Once()
+
+	q := queue.NewBaseQueue(suite.Pool, "foo")
+	q.SetProcessor(processor)
+
+	_, err := q.Concat("bar")
+
+	suite.Assert().Equal(redis.ErrNil, err)
+	processor.AssertExpectations(suite.T())
+}
+
+func (suite *ByteQueueSuite) TestConcatAbortsOnCommandError() {
+	err := redis.Error("oh no!")
+	processor := &MockProcessor{}
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(err).Once()
+
+	q := queue.NewBaseQueue(suite.Pool, "foo")
+
+	q.SetProcessor(processor)
+	_, qerr := q.Concat("bar")
+	suite.Assert().Equal(err, qerr)
+
+	processor.AssertExpectations(suite.T())
+}
+
+func (suite *ByteQueueSuite) TestConcatRetriesOnCnxError() {
+	processor := &MockProcessor{}
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(errors.New("some net error or something")).Once()
+	processor.On("Concat",
+		mock.Anything, "bar", "foo").
+		Return(redis.ErrNil).Once()
+
+	q := queue.NewBaseQueue(suite.Pool, "foo")
+	q.SetProcessor(processor)
+
+	_, err := q.Concat("bar")
+
+	suite.Assert().Equal(redis.ErrNil, err)
+	processor.AssertExpectations(suite.T())
 }
