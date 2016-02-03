@@ -34,12 +34,15 @@ type Heartbeater struct {
 // takes in the id, location, interval and pool with which to use to create
 // Hearts and Detectors.
 func New(id, location string, interval time.Duration, pool *redis.Pool) *Heartbeater {
-	return &Heartbeater{
+	h := &Heartbeater{
 		ID:       id,
 		Location: location,
 		interval: interval,
 		pool:     pool,
 	}
+	h.Strategy = HashExpireyStrategy{h.MaxAge()}
+
+	return h
 }
 
 // Interval returns the interval at which the heart should tick itself.
@@ -50,6 +53,7 @@ func (h *Heartbeater) Interval() time.Duration {
 // Heart creates and returns a new instance of the Heart type with the
 // parameters used by the Heartbeater for consistency.
 func (h *Heartbeater) Heart() Heart {
+	// TODO: missing strategy field here
 	return NewSimpleHeart(h.ID, h.Location, h.interval, h.pool, h.Strategy)
 }
 
