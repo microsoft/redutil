@@ -54,7 +54,7 @@ func (suite *ByteQueueSuite) TestPushDelegatesToProcesor() {
 	processor := &MockProcessor{}
 	processor.
 		On("Push",
-			mock.Anything, "foo", []byte("payload")).
+		mock.Anything, "foo", []byte("payload")).
 		Return(nil)
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
@@ -68,7 +68,7 @@ func (suite *ByteQueueSuite) TestPushPropogatesErrors() {
 	processor := &MockProcessor{}
 	processor.
 		On("Push",
-			mock.Anything, "foo", []byte("payload")).
+		mock.Anything, "foo", []byte("payload")).
 		Return(errors.New("error"))
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
@@ -88,12 +88,12 @@ func (suite *ByteQueueSuite) TestPullDelegatesToProcessor() {
 		Return([]byte{}, redis.ErrNil).After(1 * time.Second).Once()
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
-
 	q.SetProcessor(processor)
-	q.BeginRecv()
-	defer q.Close()
 
-	suite.Assert().Equal([]byte("bar"), <-q.In())
+	payload, err := q.Pull()
+
+	suite.Assert().Nil(err)
+	suite.Assert().Equal([]byte("bar"), payload)
 }
 
 func (suite *ByteQueueSuite) TestConcatsDelegatesToProcessor() {
@@ -106,7 +106,6 @@ func (suite *ByteQueueSuite) TestConcatsDelegatesToProcessor() {
 		Return(redis.ErrNil).Once()
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
-	defer q.Close()
 
 	q.SetProcessor(processor)
 	suite.Assert().Nil(q.Concat("bar"))
@@ -122,7 +121,6 @@ func (suite *ByteQueueSuite) TestConcatAbortsOnCommandError() {
 		Return(err).Once()
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
-	defer q.Close()
 
 	q.SetProcessor(processor)
 	suite.Assert().Equal(q.Concat("bar"), err)
@@ -140,7 +138,6 @@ func (suite *ByteQueueSuite) TestConcatRetriesOnCnxError() {
 		Return(redis.ErrNil).Once()
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
-	defer q.Close()
 
 	q.SetProcessor(processor)
 	suite.Assert().Nil(q.Concat("bar"))
@@ -156,7 +153,6 @@ func (suite *ByteQueueSuite) TestConcatAbortsOnTooManyErrors() {
 		Return(err).Times(3)
 
 	q := queue.NewByteQueue(suite.Pool, "foo")
-	defer q.Close()
 
 	q.SetProcessor(processor)
 	suite.Assert().Equal(q.Concat("bar"), err)
