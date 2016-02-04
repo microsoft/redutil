@@ -6,21 +6,28 @@ import (
 	"github.com/garyburd/redigo/redis"
 )
 
-// baseQueue provides a basic implementation of the Queue interface. Its basic
+// BaseQueue provides a basic implementation of the Queue interface. Its basic
 // methodology is to preform updates using a Processor interface which in and of
 // itself defines how updates can be handled.
-type baseQueue struct {
-	source string
+type BaseQueue struct {
 	pool   *redis.Pool
+	source string
 
 	pmu       sync.RWMutex
 	processor Processor
 }
 
-var _ Queue = new(baseQueue)
+var _ Queue = new(BaseQueue)
+
+func NewBaseQueue(pool *redis.Pool, source string) *BaseQueue {
+	return &BaseQueue{
+		pool:   pool,
+		source: source,
+	}
+}
 
 // Source implements the Source method on the Queue interface.
-func (q *baseQueue) Source() string {
+func (q *BaseQueue) Source() string {
 	return q.source
 }
 
@@ -31,7 +38,7 @@ func (q *baseQueue) Source() string {
 //
 // If an error occurs during Pushing, it will be returned, and it can be assumed
 // that the payload is not in Redis.
-func (q *baseQueue) Push(payload []byte) (err error) {
+func (q *BaseQueue) Push(payload []byte) (err error) {
 	cnx := q.pool.Get()
 	defer cnx.Close()
 
@@ -39,7 +46,7 @@ func (q *baseQueue) Push(payload []byte) (err error) {
 }
 
 // Source implements the Source method on the Queue interface.
-func (q *baseQueue) Pull() (payload []byte, err error) {
+func (q *BaseQueue) Pull() (payload []byte, err error) {
 	cnx := q.pool.Get()
 	defer cnx.Close()
 
@@ -50,7 +57,7 @@ func (q *baseQueue) Pull() (payload []byte, err error) {
 // requesting a read-level lock from the guarding mutex and returning that value
 // once obtained. If no processor is set, the the default FIFO implementation is
 // returned.
-func (q *baseQueue) Processor() Processor {
+func (q *BaseQueue) Processor() Processor {
 	q.pmu.RLock()
 	defer q.pmu.RUnlock()
 
@@ -64,7 +71,7 @@ func (q *baseQueue) Processor() Processor {
 // SetProcessor implements the SetProcessor method on the Queue interface. It
 // functions by requesting write-level access from the guarding mutex and
 // preforms the update atomically.
-func (q *baseQueue) SetProcessor(processor Processor) {
+func (q *BaseQueue) SetProcessor(processor Processor) {
 	q.pmu.Lock()
 	defer q.pmu.Unlock()
 
