@@ -25,7 +25,7 @@ func (f *fifoProcessor) Push(cnx redis.Conn, src string, payload []byte) (err er
 // If an item can sucessfully be removed from the keyspace, it is returned
 // without error.
 func (f *fifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
-	slices, err := redis.ByteSlices(cnx.Do("BRPOP", src))
+	slices, err := redis.ByteSlices(cnx.Do("BRPOP", src, 0))
 	if err == redis.ErrNil {
 		return nil, nil
 	}
