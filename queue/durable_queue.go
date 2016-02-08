@@ -15,8 +15,8 @@ type DurableQueue struct {
 	// dest is the Redis keyspace where Pulled() items end up.
 	dest string
 
-	// DurableQueue extends a *BaseQueue
-	*BaseQueue
+	// DurableQueue extends a BaseQueue
+	BaseQueue
 }
 
 // DurableQueue implements the Queue type.
@@ -32,7 +32,7 @@ var _ Queue = new(DurableQueue)
 func NewDurableQueue(pool *redis.Pool, source, dest string) *DurableQueue {
 	return &DurableQueue{
 		dest:      dest,
-		BaseQueue: NewBaseQueue(pool, source),
+		BaseQueue: BaseQueue{source: source, pool: pool},
 	}
 }
 

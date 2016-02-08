@@ -11,7 +11,7 @@ const concatRetries int = 3
 // back over the `In() <-chan []byte`. It is typically used in a distributed
 // setting, where the pusher may not always get the item back.
 type ByteQueue struct {
-	*BaseQueue
+	BaseQueue
 }
 
 // NewByteQueue allocates and returns a pointer to a new instance of a
@@ -20,7 +20,7 @@ type ByteQueue struct {
 //
 // Internal channels are also initialized here.
 func NewByteQueue(pool *redis.Pool, name string) *ByteQueue {
-	return &ByteQueue{&BaseQueue{
+	return &ByteQueue{BaseQueue{
 		source: name,
 		pool:   pool,
 	}}
