@@ -40,6 +40,10 @@ func (l *lifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
 // PullTo implements the `func PullTo` from the `Processor` interface. It pulls
 // from the right-side of the Redis source (src) structure, and pushes to the
 // left side of the Redis destination (dest) structure.
+//
+// Warning: unlike Pull() and the PullTo() method on the FIFO process, this
+// is NOT blocking and will return nil if there is not anything on the queue
+// when the method is called.
 func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error) {
 	bytes, err := redis.Bytes(LPOPRPUSH(cnx).Do(cnx, src, dest))
 	if err == redis.ErrNil {
