@@ -41,7 +41,7 @@ func (l *lifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
 // from the right-side of the Redis source (src) structure, and pushes to the
 // left side of the Redis destination (dest) structure.
 func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error) {
-	bytes, err := redis.Bytes(cnx.Do("BRPOPLPUSH", src, dest, 0))
+	bytes, err := redis.Bytes(LPOPRPUSH(cnx).Do(cnx, src, dest))
 	if err == redis.ErrNil {
 		return nil, nil
 	}
@@ -56,5 +56,10 @@ func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error)
 // Removes the first element from the source list and adds it to the end
 // of the destination list. ErrNil is returns when the source is empty.
 func (l *lifoProcessor) Concat(cnx redis.Conn, src, dest string) (err error) {
-	return rlConcat(cnx, src, dest)
+	bytes, err := l.PullTo(cnx, src, dest)
+	if err == nil && bytes == nil {
+		err = redis.ErrNil
+	}
+
+	return
 }
