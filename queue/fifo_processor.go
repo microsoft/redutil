@@ -7,17 +7,16 @@ type fifoProcessor struct{}
 // FIFO is a first in, first out implementation of the Processor interface.
 var FIFO Processor = &fifoProcessor{}
 
-// Push implements the `func Push` from `Processor`. It pushes the right-side
+// Push implements the `func Push` from `Processor`. It pushes to the left-side
 // of the Redis structure using RPUSH, and returns any errors encountered while
 // runnning that command.
-func (l *fifoProcessor) Push(cnx redis.Conn, key string, payload []byte) (err error) {
-	_, err = cnx.Do("LPUSH", key, payload)
+func (f *fifoProcessor) Push(cnx redis.Conn, src string, payload []byte) (err error) {
+	_, err = cnx.Do("LPUSH", src, payload)
 	return
 }
 
-// Pull implements the `func Pull` from `Processor`. It pulls from the left-side
-// of the Redis structure in a blocking-fashion, using BLPOP. It waits one
-// second before timing out.
+// Pull implements the `func Pull` from `Processor`. It pulls from the right-side
+// of the Redis structure in a blocking-fashion, using BLPOP.
 //
 // If an redis.ErrNil is returned, it is silenced, and both fields are returend
 // as nil. If the err is not a redis.ErrNil, but is still non-nil itself, then
@@ -25,8 +24,23 @@ func (l *fifoProcessor) Push(cnx redis.Conn, key string, payload []byte) (err er
 //
 // If an item can sucessfully be removed from the keyspace, it is returned
 // without error.
-func (l *fifoProcessor) Pull(cnx redis.Conn, key string) ([]byte, error) {
-	slices, err := redis.ByteSlices(cnx.Do("BRPOP", key, 1))
+func (f *fifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
+	slices, err := redis.ByteSlices(cnx.Do("BRPOP", src, 0))
+	if err == redis.ErrNil {
+		return nil, nil
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	return slices[1], nil
+}
+
+// PullTo implements the `func PullTo` from the `Processor` interface. It pulls
+// from the right-side of the Redis source (src) structure, and pushes to the
+// right side of the Redis destination (dest) structure.
+func (f *fifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error) {
+	bytes, err := redis.Bytes(cnx.Do("BRPOPLPUSH", src, dest, 0))
 	if err == redis.ErrNil {
 		return nil, nil
 	}
@@ -35,7 +49,7 @@ func (l *fifoProcessor) Pull(cnx redis.Conn, key string) ([]byte, error) {
 		return nil, err
 	}
 
-	return slices[1], nil
+	return bytes, nil
 }
 
 // Removes the first element from the source list and adds it to the end

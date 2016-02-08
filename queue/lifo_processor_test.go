@@ -23,12 +23,30 @@ func TestLIFOProcessorSuite(t *testing.T) {
 }
 
 func (suite *LIFOProcessorTest) assertOrder(cnx redis.Conn) {
-	first, _ := queue.LIFO.Pull(cnx, "keyspace")
-	second, _ := queue.LIFO.Pull(cnx, "keyspace")
-	third, _ := queue.LIFO.Pull(cnx, "keyspace")
+	first, e1 := queue.LIFO.Pull(cnx, "keyspace")
+	second, e2 := queue.LIFO.Pull(cnx, "keyspace")
+	third, e3 := queue.LIFO.Pull(cnx, "keyspace")
+
 	suite.Assert().Equal([]byte("third"), first)
 	suite.Assert().Equal([]byte("second"), second)
 	suite.Assert().Equal([]byte("first"), third)
+
+	suite.Assert().Nil(e1)
+	suite.Assert().Nil(e2)
+	suite.Assert().Nil(e3)
+}
+
+func (suite *LIFOProcessorTest) TestPullToOrder() {
+	cnx := suite.Pool.Get()
+	defer cnx.Close()
+
+	queue.FIFO.Push(cnx, "keyspace", []byte("third"))
+	queue.FIFO.Push(cnx, "keyspace", []byte("second"))
+	queue.FIFO.Push(cnx, "keyspace2", []byte("first"))
+
+	queue.FIFO.PullTo(cnx, "keyspace2", "keyspace")
+
+	suite.assertOrder(cnx)
 }
 
 func (suite *LIFOProcessorTest) TestProcessingOrder() {
