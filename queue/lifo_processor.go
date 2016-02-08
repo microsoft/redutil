@@ -41,7 +41,7 @@ func (l *lifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
 // from the right-side of the Redis source (src) structure, and pushes to the
 // left side of the Redis destination (dest) structure.
 func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error) {
-	bytes, err := redis.Bytes(cnx.Do("BRPOPLPUSH"))
+	bytes, err := redis.Bytes(cnx.Do("BRPOPLPUSH", src, dest, 0))
 	if err == redis.ErrNil {
 		return nil, nil
 	}

@@ -23,12 +23,17 @@ func TestFIFOProcessorSuite(t *testing.T) {
 }
 
 func (suite *FIFOProcessorTest) assertOrder(cnx redis.Conn) {
-	first, _ := queue.FIFO.Pull(cnx, "keyspace")
-	second, _ := queue.FIFO.Pull(cnx, "keyspace")
-	third, _ := queue.FIFO.Pull(cnx, "keyspace")
+	first, e1 := queue.FIFO.Pull(cnx, "keyspace")
+	second, e2 := queue.FIFO.Pull(cnx, "keyspace")
+	third, e3 := queue.FIFO.Pull(cnx, "keyspace")
+
 	suite.Assert().Equal([]byte("first"), first)
 	suite.Assert().Equal([]byte("second"), second)
 	suite.Assert().Equal([]byte("third"), third)
+
+	suite.Assert().Nil(e1)
+	suite.Assert().Nil(e2)
+	suite.Assert().Nil(e3)
 }
 
 func (suite *FIFOProcessorTest) TestProcessingOrder() {

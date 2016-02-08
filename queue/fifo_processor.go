@@ -40,7 +40,7 @@ func (f *fifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
 // from the right-side of the Redis source (src) structure, and pushes to the
 // right side of the Redis destination (dest) structure.
 func (f *fifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error) {
-	bytes, err := redis.Bytes(cnx.Do("BRPOPLPUSH"))
+	bytes, err := redis.Bytes(cnx.Do("BRPOPLPUSH", src, dest, 0))
 	if err == redis.ErrNil {
 		return nil, nil
 	}
