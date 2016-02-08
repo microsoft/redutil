@@ -36,6 +36,19 @@ func (suite *FIFOProcessorTest) assertOrder(cnx redis.Conn) {
 	suite.Assert().Nil(e3)
 }
 
+func (suite *FIFOProcessorTest) TestPullToOrder() {
+	cnx := suite.Pool.Get()
+	defer cnx.Close()
+
+	queue.FIFO.Push(cnx, "keyspace", []byte("first"))
+	queue.FIFO.Push(cnx, "keyspace", []byte("second"))
+	queue.FIFO.Push(cnx, "keyspace2", []byte("third"))
+
+	queue.FIFO.PullTo(cnx, "keyspace2", "keyspace")
+
+	suite.assertOrder(cnx)
+}
+
 func (suite *FIFOProcessorTest) TestProcessingOrder() {
 	cnx := suite.Pool.Get()
 	defer cnx.Close()
