@@ -2,6 +2,7 @@ package queue
 
 import (
 	"sync"
+	"time"
 
 	"github.com/garyburd/redigo/redis"
 )
@@ -46,11 +47,11 @@ func (q *BaseQueue) Push(payload []byte) (err error) {
 }
 
 // Source implements the Source method on the Queue interface.
-func (q *BaseQueue) Pull() (payload []byte, err error) {
+func (q *BaseQueue) Pull(timeout time.Duration) (payload []byte, err error) {
 	cnx := q.pool.Get()
 	defer cnx.Close()
 
-	return q.Processor().Pull(cnx, q.Source())
+	return q.Processor().Pull(cnx, q.Source(), timeout)
 }
 
 // Source implements the Source method on the Queue interface. It functions by

@@ -2,6 +2,7 @@ package queue
 
 import (
 	"sync"
+	"time"
 
 	"github.com/garyburd/redigo/redis"
 )
@@ -40,11 +41,11 @@ func NewDurableQueue(pool *redis.Pool, source, dest string) *DurableQueue {
 // implementations of the Queue type, it mutates the Redis keyspace twice, by
 // removing an item from one LIST and popping it onto another. It does so by
 // delegating into the processor, thus blocking until the processor returns.
-func (q *DurableQueue) Pull() (payload []byte, err error) {
+func (q *DurableQueue) Pull(timeout time.Duration) (payload []byte, err error) {
 	cnx := q.pool.Get()
 	defer cnx.Close()
 
-	return q.Processor().PullTo(cnx, q.Source(), q.Dest())
+	return q.Processor().PullTo(cnx, q.Source(), q.Dest(), timeout)
 }
 
 // Dest returns the destination keyspace in Redis where pulled items end up. It

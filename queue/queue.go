@@ -1,5 +1,7 @@
 package queue
 
+import "time"
+
 type Queue interface {
 	// Source returns the keyspace in Redis from which this queue is
 	// populated.
@@ -17,7 +19,7 @@ type Queue interface {
 
 	// Pull returns the next available payload, blocking until data can be
 	// returned.
-	Pull() (payload []byte, err error)
+	Pull(timeout time.Duration) (payload []byte, err error)
 
 	// Processor returns the processor that is being used to push and pull.
 	// If no processor is specified, a first-in-first-out will be returned

@@ -1,6 +1,10 @@
 package queue
 
-import "github.com/garyburd/redigo/redis"
+import (
+	"time"
+
+	"github.com/garyburd/redigo/redis"
+)
 
 type fifoProcessor struct{}
 
@@ -24,27 +28,24 @@ func (f *fifoProcessor) Push(cnx redis.Conn, src string, payload []byte) (err er
 //
 // If an item can sucessfully be removed from the keyspace, it is returned
 // without error.
-func (f *fifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
-	slices, err := redis.ByteSlices(cnx.Do("BRPOP", src, 0))
-	if err == redis.ErrNil {
-		return nil, nil
-	}
+func (f *fifoProcessor) Pull(cnx redis.Conn, src string,
+	timeout time.Duration) ([]byte, error) {
 
+	slices, err := redis.ByteSlices(cnx.Do("BRPOP", src, block(timeout)))
 	if err != nil {
 		return nil, err
 	}
+
 	return slices[1], nil
 }
 
 // PullTo implements the `func PullTo` from the `Processor` interface. It pulls
 // from the right-side of the Redis source (src) structure, and pushes to the
 // right side of the Redis destination (dest) structure.
-func (f *fifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error) {
-	bytes, err := redis.Bytes(cnx.Do("BRPOPLPUSH", src, dest, 0))
-	if err == redis.ErrNil {
-		return nil, nil
-	}
+func (f *fifoProcessor) PullTo(cnx redis.Conn, src, dest string,
+	timeout time.Duration) ([]byte, error) {
 
+	bytes, err := redis.Bytes(cnx.Do("BRPOPLPUSH", src, dest, block(timeout)))
 	if err != nil {
 		return nil, err
 	}
