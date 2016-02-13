@@ -3,6 +3,7 @@ package queue_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/WatchBeam/redutil/conn"
 	"github.com/WatchBeam/redutil/queue"
@@ -26,12 +27,12 @@ func TestDurableQueueSuite(t *testing.T) {
 func (suite *DurableQueueSuite) TestPullDelegatesToProcessor() {
 	p := &MockProcessor{}
 	p.On("PullTo",
-		mock.Anything, "foo", "bar").
+		mock.Anything, "foo", "bar", time.Second).
 		Return([]byte("baz"), fmt.Errorf("woot")).Once()
 
 	q := queue.NewDurableQueue(suite.Pool, "foo", "bar")
 	q.SetProcessor(p)
-	data, err := q.Pull()
+	data, err := q.Pull(time.Second)
 
 	suite.Assert().Equal([]byte("baz"), data)
 	suite.Assert().Equal("woot", err.Error())

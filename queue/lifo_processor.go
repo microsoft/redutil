@@ -1,6 +1,10 @@
 package queue
 
-import "github.com/garyburd/redigo/redis"
+import (
+	"time"
+
+	"github.com/garyburd/redigo/redis"
+)
 
 type lifoProcessor struct{}
 
@@ -15,8 +19,8 @@ func (l *lifoProcessor) Push(cnx redis.Conn, src string, payload []byte) (err er
 	return
 }
 
-// Pull implements the `func Pull` from `Processor`. It pulls from the right-side
-// of the Redis structure in a blocking-fashion, using BRPOP.
+// Pull implements the `func Pull` from `Processor`. It pulls from the
+// right-side of the Redis structure in a blocking-fashion, using BRPOP.
 //
 // If an redis.ErrNil is returned, it is silenced, and both fields are returend
 // as nil. If the err is not a redis.ErrNil, but is still non-nil itself, then
@@ -24,12 +28,10 @@ func (l *lifoProcessor) Push(cnx redis.Conn, src string, payload []byte) (err er
 //
 // If an item can successfully be removed from the keyspace, it is returned
 // without error.
-func (l *lifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
-	slices, err := redis.ByteSlices(cnx.Do("BRPOP", src, 0))
-	if err == redis.ErrNil {
-		return nil, nil
-	}
+func (l *lifoProcessor) Pull(cnx redis.Conn, src string,
+	timeout time.Duration) ([]byte, error) {
 
+	slices, err := redis.ByteSlices(cnx.Do("BRPOP", src, block(timeout)))
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +46,9 @@ func (l *lifoProcessor) Pull(cnx redis.Conn, src string) ([]byte, error) {
 // Warning: unlike Pull() and the PullTo() method on the FIFO process, this
 // is NOT blocking and will return redis.ErrNil if there is not anything on
 // the queue when the method is called.
-func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error) {
+func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string,
+	_ time.Duration) ([]byte, error) {
+
 	bytes, err := redis.Bytes(LPOPRPUSH(cnx).Do(cnx, src, dest))
 	if err != nil {
 		return nil, err
@@ -56,7 +60,7 @@ func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string) ([]byte, error)
 // Removes the first element from the source list and adds it to the end
 // of the destination list. ErrNil is returns when the source is empty.
 func (l *lifoProcessor) Concat(cnx redis.Conn, src, dest string) (err error) {
-	bytes, err := l.PullTo(cnx, src, dest)
+	bytes, err := l.PullTo(cnx, src, dest, 0*time.Second)
 	if err == nil && bytes == nil {
 		err = redis.ErrNil
 	}
