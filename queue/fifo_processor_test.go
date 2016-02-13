@@ -2,6 +2,7 @@ package queue_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/WatchBeam/redutil/conn"
 	"github.com/WatchBeam/redutil/queue"
@@ -23,9 +24,9 @@ func TestFIFOProcessorSuite(t *testing.T) {
 }
 
 func (suite *FIFOProcessorTest) assertOrder(cnx redis.Conn) {
-	first, e1 := queue.FIFO.Pull(cnx, "keyspace")
-	second, e2 := queue.FIFO.Pull(cnx, "keyspace")
-	third, e3 := queue.FIFO.Pull(cnx, "keyspace")
+	first, e1 := queue.FIFO.Pull(cnx, "keyspace", time.Second)
+	second, e2 := queue.FIFO.Pull(cnx, "keyspace", time.Second)
+	third, e3 := queue.FIFO.Pull(cnx, "keyspace", time.Second)
 
 	suite.Assert().Equal([]byte("first"), first)
 	suite.Assert().Equal([]byte("second"), second)
@@ -44,7 +45,7 @@ func (suite *FIFOProcessorTest) TestPullToOrder() {
 	queue.FIFO.Push(cnx, "keyspace", []byte("second"))
 	queue.FIFO.Push(cnx, "keyspace2", []byte("third"))
 
-	queue.FIFO.PullTo(cnx, "keyspace2", "keyspace")
+	queue.FIFO.PullTo(cnx, "keyspace2", "keyspace", time.Second)
 
 	suite.assertOrder(cnx)
 }
@@ -73,4 +74,16 @@ func (suite *FIFOProcessorTest) TestConcats() {
 	suite.Assert().Equal(redis.ErrNil, queue.FIFO.Concat(cnx, "keyspace2", "keyspace"))
 
 	suite.assertOrder(cnx)
+}
+
+// Unfortunately, this test takes a lot of time to run since redis does not
+// support floating point timeouts.
+func (suite *FIFOProcessorTest) TestPullRespectsTimeouts() {
+	cnx := suite.Pool.Get()
+	defer cnx.Close()
+
+	b, err := queue.FIFO.Pull(cnx, "keyspace", 250*time.Millisecond)
+
+	suite.Assert().Empty(b)
+	suite.Assert().Equal(redis.ErrNil, err)
 }

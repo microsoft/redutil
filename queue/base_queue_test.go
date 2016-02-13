@@ -3,6 +3,7 @@ package queue_test
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/WatchBeam/redutil/conn"
 	"github.com/WatchBeam/redutil/queue"
@@ -42,13 +43,13 @@ func (suite *BaseQueueSuite) TestPushDelegatesToProcesor() {
 func (suite *ByteQueueSuite) TestPullDelegatesToProcessor() {
 	processor := &MockProcessor{}
 	processor.On("Pull",
-		mock.Anything, "foo").
+		mock.Anything, "foo", time.Second).
 		Return([]byte("bar"), errors.New("error"))
 
 	q := queue.NewBaseQueue(suite.Pool, "foo")
 	q.SetProcessor(processor)
 
-	payload, err := q.Pull()
+	payload, err := q.Pull(time.Second)
 
 	suite.Assert().Equal([]byte("bar"), payload)
 	suite.Assert().Equal("error", err.Error())
