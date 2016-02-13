@@ -2,6 +2,10 @@
 
 ## pubsub
 
+### 2.3.1 (02-13-2016)
+ * **Breaking Change**: Allow the specification of a timeout parameter to
+   several (previously) infinitely-blocking methods.
+
 ### 2.3 (01-30-2016)
  * Implement the `queue` package.
 
