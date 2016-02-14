@@ -5,7 +5,7 @@ This package consists of several utilities to make Redis easier and more consist
 
 ## pubsub
 
-Tranditional Redis libraries allow you to subscribe to events, and maybe even pool connections. But there's often no mechanism for maintaining subscribed state in the event of a connection failure, and many packages aren't thread-safe. This package, `redutil/pubsub`, solves these issues.
+Traditional Redis libraries allow you to subscribe to events, and maybe even pool connections. But there's often no mechanism for maintaining subscribed state in the event of a connection failure, and many packages aren't thread-safe. This package, `redutil/pubsub`, solves these issues.
 
 It is fully thread safe and unit tested. We're currently using it in production, though it has not yet been entirely battle-tested. Feel free to open issues on this repository.
 
