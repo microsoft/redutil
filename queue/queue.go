@@ -21,6 +21,15 @@ type Queue interface {
 	// returned.
 	Pull(timeout time.Duration) (payload []byte, err error)
 
+	// Takes all elements from the source queue and adds them to this one. This
+	// can be a long-running operation. If a persistent error is returned while
+	// moving things, then concat will stop, though the concat operation can
+	// be safely resumed at any time.
+	//
+	// Returns the number of items successfully moved and any error that
+	// occurred.
+	Concat(src string) (moved int, err error)
+
 	// Processor returns the processor that is being used to push and pull.
 	// If no processor is specified, a first-in-first-out will be returned
 	// by default.

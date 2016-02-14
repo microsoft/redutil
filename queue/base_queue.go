@@ -78,3 +78,43 @@ func (q *BaseQueue) SetProcessor(processor Processor) {
 
 	q.processor = processor
 }
+
+// Takes all elements from the source queue and adds them to this one. This
+// can be a long-running operation. If a persistent error is returned while
+// moving things, then it will be returned and the concat will stop, though
+// the concat operation can be safely resumed at any time.
+func (q *BaseQueue) Concat(src string) (moved int, err error) {
+	cnx := q.pool.Get()
+	defer cnx.Close()
+
+	errCount := 0
+	for {
+		err = q.Processor().Concat(cnx, src, q.Source())
+		if err == nil {
+			errCount = 0
+			moved++
+			continue
+		}
+
+		// ErrNil is returned when there are no more items to concat
+		if err == redis.ErrNil {
+			return
+		}
+
+		// Command error are bad; something is wrong in db and we should
+		// return the problem to the caller.
+		if _, cmdErr := err.(redis.Error); cmdErr {
+			return
+		}
+
+		// Otherwise this is probably some temporary network error. Close
+		// the old connection and try getting a new one.
+		errCount++
+		if errCount >= concatRetries {
+			return
+		}
+
+		cnx.Close()
+		cnx = q.pool.Get()
+	}
+}
