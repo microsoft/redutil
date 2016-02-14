@@ -27,9 +27,24 @@ const (
 type Worker struct {
 	pool *redis.Pool
 
-	// lifecycle is the lifecycle
+	// availableTasks is a Redis queue that contains an in-order list of
+	// tasks that need to be worked on. Workers race into this list.
+	availableTasks queue.Queue
+	// workingTasks contains the list of tasks that this particular worker
+	// is currently working on. See above semantics as to where these items
+	// move to and from.
+	workingTasks *queue.DurableQueue
+
 	lifecycle Lifecycle
-	heart     heartbeat.Heart
+
+	// The heartbeat components are used to maintain the state of the worker
+	// and to detect dead workers to clean up.
+	detector heartbeat.Detector
+	heart    heartbeat.Heart
+
+	// The janitor is responsible for cleaning up dead workers.
+	janitor       Janitor
+	janitorRunner *janitorRunner
 
 	// smu wraps Worker#state in a loving, mutex-y embrace.
 	smu sync.Mutex
@@ -37,7 +52,15 @@ type Worker struct {
 	state state
 }
 
-const defaultHeartInterval = 3 * time.Second
+const (
+	// Default interval passed into heartbeat.New
+	defaultHeartInterval = 10 * time.Second
+	// Default interval we use to check for dead workers. Note that the first
+	// check will be anywhere in the range [0, monitor interval]; this is
+	// randomized so that workers that start at the same time will not
+	// contest the same locks.
+	defaultMonitorInterval = 120 * Second
+)
 
 // New creates and returns a pointer to a new instance of a Worker. It uses the
 // given redis.Pool, the main queue's keyspace to pull from, and is given a
@@ -48,19 +71,29 @@ func New(pool *redis.Pool, queue, id string) *Worker {
 		fmt.Sprintf("%s:%s:%s", queue, "ticks", id),
 		defaultHeartInterval, pool)
 
+	workerName := fmt.Sprintf("%s:worker_%s", source, id)
+	availableTasks := queue.NewByteQueue(pool, source)
+	workingTasks := queue.NewDurableQueue(pool, source, workerName)
+
 	return &Worker{
-		pool:      pool,
-		lifecycle: NewLifecycle(pool, queue, id),
+		pool:           pool,
+		availableTasks: availableTasks,
+		workingTasks:   workingTasks,
+
+		lifecycle: NewLifecycle(pool, availableTasks, workingTasks),
+		detector:  heartbeater.Detector(),
 		heart:     heartbeater.Heart(),
-		state:     closed,
+		janitor:   nilJanitor{},
+
+		state: closed,
 	}
 }
 
-func NewWithLifecycle(pool *redis.Pool, queue, id string, lifecycle Lifecycle) *Worker {
-	w := New(pool, queue, id)
-	w.lifecycle = lifecycle
-
-	return w
+// Sets the Janitor interface used to dispose of old workers. This is optional;
+// if you do not need to hook in extra functionality, you don't need to
+// provide a janitor.
+func (w *Worker) SetJanitor(janitor Janitor) {
+	w.janitor = janitor
 }
 
 // Start signals the worker to begin receiving tasks from the main queue.
@@ -69,8 +102,13 @@ func (w *Worker) Start() (<-chan *Task, <-chan error) {
 	defer w.smu.Unlock()
 
 	w.state = open
+	w.janitorRunner = newJanitorRunner(w.pool, w.detector, w.janitor,
+		w.availableTasks, w.workingTasks)
 
-	return w.lifecycle.Listen()
+	errs1 := w.janitorRunner.Start()
+	tasks, errs2 := w.lifecycle.Listen()
+
+	return tasks, concatErrs(errs1, errs2)
 }
 
 // Close stops polling the queue immediately and waits for all tasks to complete
@@ -101,6 +139,7 @@ func (w *Worker) startClosing(fn func()) {
 
 	w.lifecycle.StopListening()
 	w.heart.Close()
+	w.janitorRunner.Close()
 
 	fn()
 

@@ -21,6 +21,10 @@ func (_ *StrategyStub) Touch(location, ID string, pool *redis.Pool) (err error) 
 	return nil
 }
 
+func (_ *StrategyStub) Purge(location, ID string, pool *redis.Pool) (err error) {
+	return nil
+}
+
 func (_ *StrategyStub) Expired(location string, pool *redis.Pool) (expired []string, err error) {
 	return make([]string, 0), nil
 }

@@ -45,6 +45,20 @@ func (s HashExpireyStrategy) Touch(location, ID string, pool *redis.Pool) error 
 	return nil
 }
 
+// Purge implements the `func Purge` defined in the Strategy interface. It
+// assumes a HASH type is used in Redis to map the IDs of various Hearts,
+// and removes the record for the specified ID from the hash.
+func (s HashExpireyStrategy) Purge(location, ID string, pool *redis.Pool) error {
+	cnx := pool.Get()
+	defer cnx.Close()
+
+	if _, err := cnx.Do("HDEL", location, ID); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Expired implements the `func Expired` defined on the Strategy interface. It
 // scans iteratively over the Heart's `location` field to look for items that
 // have expired. An item is marked as expired iff the last update time happened

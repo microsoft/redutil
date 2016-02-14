@@ -7,4 +7,7 @@ type Detector interface {
 	// definition of "dead". If an error is encountered while processing, it
 	// will be returned, and execution of this function will be halted.
 	Detect() (expired []string, err error)
+
+	// Removes a (supposedly dead) worker from the heartbeating data structure.
+	Purge(id string) error
 }

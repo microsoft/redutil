@@ -49,3 +49,13 @@ func (suite *SimpleDetectorSuite) TestDetectPropogatesValues() {
 	suite.Assert().Equal(expired, []string{"foo", "bar"})
 	suite.Assert().Equal(err.Error(), "baz")
 }
+
+func (suite *SimpleDetectorSuite) TestDetectPurgesData() {
+	strategy := &TestStrategy{}
+	strategy.On("Purge", "id1", "foo", suite.Pool).Return(nil).Once()
+	strategy.On("Purge", "id2", "foo", suite.Pool).Return(errors.New("baz")).Once()
+
+	d := heartbeat.NewDetector("foo", suite.Pool, strategy)
+	suite.Assert().Nil(d.Purge("id1"))
+	suite.Assert().Equal(d.Purge("id2").Error(), "baz")
+}

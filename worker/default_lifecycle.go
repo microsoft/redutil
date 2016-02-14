@@ -37,13 +37,8 @@ type DefaultLifecycle struct {
 	// Redis.
 	pool *redis.Pool
 
-	// availableTasks is a Redis queue that contains an in-order list of
-	// tasks that need to be worked on. Workers race into this list.
 	availableTasks queue.Queue
-	// workingTasks contains the list of tasks that this particular worker
-	// is currently working on. See above semantics as to where these items
-	// move to and from.
-	workingTasks *queue.DurableQueue
+	workingTasks   *queue.DurableQueue
 
 	// rmu guards registry
 	rmu sync.Mutex
@@ -70,16 +65,14 @@ type DefaultLifecycle struct {
 
 // NewLifecycle allocates and returns a pointer to a new instance of
 // DefaultLifecycle. It uses the specified pool to make connections into Redis
-// and takes a source, which is the keyspace of tasks that need work done, and
-// id is the ID of this particular worker.
-func NewLifecycle(pool *redis.Pool, source, id string) *DefaultLifecycle {
-	workerName := fmt.Sprintf("%s:worker_%s", source, id)
-
+// and a queue of available tasks along with a second working tasks queue,
+// which stores the items the lifecycle is currently processing.
+func NewLifecycle(pool *redis.Pool, availableTasks queue.Queue,
+	workingTasks *queue.DurableQueue) *DefaultLifecycle {
 	return &DefaultLifecycle{
-		pool: pool,
-
-		availableTasks: queue.NewByteQueue(pool, source),
-		workingTasks:   queue.NewDurableQueue(pool, source, workerName),
+		pool:           pool,
+		availableTasks: availableTasks,
+		workingTasks:   workingTasks,
 	}
 }
 
@@ -150,6 +143,7 @@ func (l *DefaultLifecycle) recv() {
 	for {
 		select {
 		case <-l.closer:
+			close(l.errs)
 			return
 		default:
 			payload, err := l.workingTasks.Pull(time.Second)
