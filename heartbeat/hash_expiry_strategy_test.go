@@ -40,7 +40,7 @@ func (suite *HashExpireyStrategySuite) TestExpiredFindsDeadValues() {
 	s := &heartbeat.HashExpireyStrategy{MaxAge: time.Second}
 
 	suite.WithRedis(func(cnx redis.Conn) {
-		tick := time.Now().Add(-10 * time.Second).Format(heartbeat.DefaultTimeFormat)
+		tick := time.Now().UTC().Add(-10 * time.Second).Format(heartbeat.DefaultTimeFormat)
 		cnx.Do("HSET", "foo", "bar", tick)
 
 		expired, err := s.Expired("foo", suite.Pool)
@@ -55,7 +55,7 @@ func (suite *HashExpireyStrategySuite) TestExpiredIgnoresUnreadableValues() {
 	s := &heartbeat.HashExpireyStrategy{MaxAge: time.Second}
 
 	suite.WithRedis(func(cnx redis.Conn) {
-		tick := time.Now().Add(-10 * time.Second).Format(heartbeat.DefaultTimeFormat)
+		tick := time.Now().UTC().Add(-10 * time.Second).Format(heartbeat.DefaultTimeFormat)
 		cnx.Do("HSET", "foo", "bar", tick)
 		cnx.Do("HSET", "foo", "baz", "not a real time")
 

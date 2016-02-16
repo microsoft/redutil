@@ -36,5 +36,5 @@ func (d SimpleDetector) Detect() (expired []string, err error) {
 // Purge implements the `func Purge` on the `type Detector interface`. This
 // implementation simply delegates into the provided Strategy.
 func (d SimpleDetector) Purge(id string) (err error) {
-	return d.strategy.Purge(id, d.location, d.pool)
+	return d.strategy.Purge(d.location, id, d.pool)
 }

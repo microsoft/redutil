@@ -3,7 +3,6 @@ package worker
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -67,19 +66,20 @@ type DefaultLifecycle struct {
 // DefaultLifecycle. It uses the specified pool to make connections into Redis
 // and a queue of available tasks along with a second working tasks queue,
 // which stores the items the lifecycle is currently processing.
-func NewLifecycle(pool *redis.Pool, availableTasks queue.Queue,
-	workingTasks *queue.DurableQueue) *DefaultLifecycle {
-	return &DefaultLifecycle{
-		pool:           pool,
-		availableTasks: availableTasks,
-		workingTasks:   workingTasks,
-	}
+func NewLifecycle(pool *redis.Pool) *DefaultLifecycle {
+	return &DefaultLifecycle{pool: pool}
 }
 
 var _ Lifecycle = new(DefaultLifecycle)
 
 func (l *DefaultLifecycle) Await() {
 	l.wg.Wait()
+}
+
+func (l *DefaultLifecycle) SetQueues(availableTasks queue.Queue,
+	workingTasks *queue.DurableQueue) {
+	l.availableTasks = availableTasks
+	l.workingTasks = workingTasks
 }
 
 // Listen returns a channel of tasks and error that are pulled from the

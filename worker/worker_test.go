@@ -5,8 +5,10 @@ import (
 	"testing"
 
 	"github.com/WatchBeam/redutil/conn"
+	"github.com/WatchBeam/redutil/queue"
 	"github.com/WatchBeam/redutil/test"
 	"github.com/WatchBeam/redutil/worker"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -44,9 +46,11 @@ func (suite *WorkerSuite) TestStartPropogatesProcessor() {
 		c2 <- errors.New("error")
 	}()
 
+	l.On("SetQueues", mock.Anything, mock.Anything).Return()
 	l.On("Listen").Return(c1, c2).Once()
 
-	w := worker.NewWithLifecycle(suite.Pool, "queue", "worker_1", l)
+	w := worker.New(suite.Pool, "queue", "worker_1")
+	w.SetLifecycle(l)
 
 	t, e := w.Start()
 
@@ -65,13 +69,21 @@ func (suite *WorkerSuite) TestCloseWaitsForCompletion() {
 	l.On("Await").Return()
 	l.On("Listen").Return(c1, c2)
 	l.On("StopListening").Return()
+	l.On("SetQueues", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		src := args.Get(0).(queue.Queue)
+		suite.Assert().Equal("queue", src.Source())
+		dest := args.Get(1).(*queue.DurableQueue)
+		suite.Assert().Equal("queue", dest.Source())
+		suite.Assert().Equal("queue:worker_worker_1", dest.Dest())
+	})
 
-	w := worker.NewWithLifecycle(suite.Pool, "queue", "worker_1", l)
+	w := worker.New(suite.Pool, "queue", "worker_1")
+	w.SetLifecycle(l)
 
 	w.Start()
 	w.Close()
 
-	l.AssertCalled(suite.T(), "Await")
+	l.AssertExpectations(suite.T())
 }
 
 func (suite *WorkerSuite) TestHaltDoesNotWaitForCompletion() {
@@ -86,8 +98,10 @@ func (suite *WorkerSuite) TestHaltDoesNotWaitForCompletion() {
 	l.On("AbandonAll").Return(nil).Once()
 	l.On("Listen").Return(c1, c2)
 	l.On("StopListening").Return()
+	l.On("SetQueues", mock.Anything, mock.Anything).Return()
 
-	w := worker.NewWithLifecycle(suite.Pool, "queue", "worker_1", l)
+	w := worker.New(suite.Pool, "queue", "worker_1")
+	w.SetLifecycle(l)
 
 	w.Start()
 	w.Halt()

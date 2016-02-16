@@ -1,6 +1,16 @@
 package worker
 
+import (
+	"github.com/WatchBeam/redutil/queue"
+)
+
 type Lifecycle interface {
+	// Sets the queues for the lifecycle's tasks. The lifecycle should
+	// pull jobs from the `available` queue, then add them to the
+	// `working` queue until they're complete. When they're complete,
+	// the jobs can be deleted from that queue.
+	SetQueues(available queue.Queue, working *queue.DurableQueue)
+
 	// Marks a task as being completed. This is called by the Task.Complete
 	// method; you should not use this directly.
 	Complete(task *Task) (err error)

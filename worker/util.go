@@ -5,7 +5,7 @@ import "reflect"
 // Concatenates the output from several error channels into a single one.
 // Stops and closes the resulting channel when all its inputs are closed.
 func concatErrs(errs ...<-chan error) <-chan error {
-	cases := make([]reflect.SelectCase, len(chans))
+	cases := make([]reflect.SelectCase, len(errs))
 	for i, ch := range errs {
 		cases[i] = reflect.SelectCase{
 			Dir:  reflect.SelectRecv,

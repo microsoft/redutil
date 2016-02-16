@@ -52,8 +52,8 @@ func (suite *SimpleDetectorSuite) TestDetectPropogatesValues() {
 
 func (suite *SimpleDetectorSuite) TestDetectPurgesData() {
 	strategy := &TestStrategy{}
-	strategy.On("Purge", "id1", "foo", suite.Pool).Return(nil).Once()
-	strategy.On("Purge", "id2", "foo", suite.Pool).Return(errors.New("baz")).Once()
+	strategy.On("Purge", "foo", "id1", suite.Pool).Return(nil).Once()
+	strategy.On("Purge", "foo", "id2", suite.Pool).Return(errors.New("baz")).Once()
 
 	d := heartbeat.NewDetector("foo", suite.Pool, strategy)
 	suite.Assert().Nil(d.Purge("id1"))

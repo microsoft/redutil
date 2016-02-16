@@ -26,7 +26,7 @@ func TestConcatsErrors(t *testing.T) {
 		close(ch2)
 	}()
 
-	tt := struct {
+	tt := []struct {
 		err    string
 		closed bool
 	}{
@@ -34,17 +34,17 @@ func TestConcatsErrors(t *testing.T) {
 		{"b1", false},
 		{"a2", false},
 		{"a3", false},
-		{nil, true},
+		{"", true},
 	}
 	out := concatErrs(ch1, ch2)
 
 	for _, test := range tt {
 		err, ok := <-out
-		if tt.closed {
+		if test.closed {
 			assert.False(t, ok)
 		} else {
 			assert.True(t, ok)
-			assert.Equal(t, test.err, err)
+			assert.Equal(t, test.err, err.Error())
 		}
 	}
 }

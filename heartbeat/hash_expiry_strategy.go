@@ -33,7 +33,7 @@ var _ Strategy = &HashExpireyStrategy{}
 // Times are marshalled using the `const DefaultTimeFormat` which stores times
 // in the ISO8601 format.
 func (s HashExpireyStrategy) Touch(location, ID string, pool *redis.Pool) error {
-	now := time.Now().Format(DefaultTimeFormat)
+	now := time.Now().UTC().Format(DefaultTimeFormat)
 
 	cnx := pool.Get()
 	defer cnx.Close()
@@ -66,7 +66,7 @@ func (s HashExpireyStrategy) Purge(location, ID string, pool *redis.Pool) error 
 func (s HashExpireyStrategy) Expired(location string,
 	pool *redis.Pool) (expired []string, err error) {
 
-	now := time.Now()
+	now := time.Now().UTC()
 
 	cnx := pool.Get()
 	defer cnx.Close()

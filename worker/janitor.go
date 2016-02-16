@@ -2,6 +2,7 @@ package worker
 
 import (
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/WatchBeam/redutil/heartbeat"
@@ -38,8 +39,8 @@ type nilJanitor struct{}
 
 var _ Janitor = nilJanitor{}
 
-func (n nilJanitor) OnPreConcat() error  { return nil }
-func (n nilJanitor) OnPostConcat() error { return nil }
+func (n nilJanitor) OnPreConcat(cnx redis.Conn, worker string) error  { return nil }
+func (n nilJanitor) OnPostConcat(cnx redis.Conn, worker string) error { return nil }
 
 // The janitor is responsible for cleaning up dead workers.
 type janitorRunner struct {
@@ -48,7 +49,6 @@ type janitorRunner struct {
 	pool *redis.Pool
 
 	availableTasks queue.Queue
-	workingTasks   *queue.DurableQueue
 
 	// Associated heartbeater detector
 	detector heartbeat.Detector
@@ -63,24 +63,34 @@ type janitorRunner struct {
 	clock clock.Clock
 
 	errs   chan error
-	closer struct{}
+	closer chan struct{}
 }
 
 func newJanitorRunner(pool *redis.Pool, detector heartbeat.Detector, janitor Janitor,
-	availableTasks queue.Queue, workingTasks *queue.DurableQueue) *janitorRunner {
+	availableTasks queue.Queue) *janitorRunner {
 
 	return &janitorRunner{
+		pool:           pool,
 		availableTasks: availableTasks,
-		workingTasks:   workingTasks,
 		detector:       detector,
 		janitor:        janitor,
+		clock:          clock.New(),
+		interval:       defaultMonitorInterval,
+		errs:           make(chan error),
+		closer:         make(chan struct{}),
 	}
 }
 
 func (j *janitorRunner) watchDead() {
+	defer close(j.errs)
+
 	// Sleep for a random interval so that janitors started at the same time
 	// don't try to contest the same locks.
-	j.clock.Sleep(time.Duration(float64(j.interval) * rand.Float64()))
+	select {
+	case <-j.closer:
+		return
+	case <-j.clock.After(time.Duration(float64(j.interval) * rand.Float64())):
+	}
 
 	ticker := j.clock.Ticker(j.interval)
 	defer ticker.Stop()
@@ -88,30 +98,46 @@ func (j *janitorRunner) watchDead() {
 	for {
 		select {
 		case <-j.closer:
-			close(j.errs)
 			return
-		case <-ticker:
-			dead, err := j.heart.Detect()
-			if err != nil {
-				j.errs <- err
-				continue
-			}
-
-			for _, worker := range dead {
-				go func(worker string) {
-					err := j.handleDeath(worker)
-					if err != nil && err != redsync.ErrFailed {
-						j.errs <- err
-					}
-				}(worker)
-			}
+		case <-ticker.C:
+			j.runCleaning()
 		}
 	}
 }
 
+// Detects expired records and starts tasks to move any of their abandoned
+// tasks back to the main queue.
+func (j *janitorRunner) runCleaning() {
+	dead, err := j.detector.Detect()
+	if err != nil {
+		j.errs <- err
+		return
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(dead))
+
+	for _, worker := range dead {
+		go func(worker string) {
+			defer wg.Done()
+
+			err := j.handleDeath(worker)
+			if err != nil && err != redsync.ErrFailed {
+				j.errs <- err
+			}
+		}(worker)
+	}
+
+	wg.Wait()
+}
+
 // Creates a mutex and attempts to acquire a redlock to dispose of the worker.
 func (j *janitorRunner) getLock(worker string) (*redsync.Mutex, error) {
-	mu = redsync.NewMutexWithPool("redutil:lock:"+worker, []redis.Pool{j.pool})
+	mu, err := redsync.NewMutexWithPool("redutil:lock:"+worker, []*redis.Pool{j.pool})
+	if err != nil {
+		return nil, err
+	}
+
 	return mu, mu.Lock()
 }
 
@@ -131,10 +157,12 @@ func (j *janitorRunner) handleDeath(worker string) error {
 		return err
 	}
 
-	_, err = j.availableTasks.Concat(j.workingTasks.Dest())
-	if err != nil {
+	_, err = j.availableTasks.Concat(
+		getWorkingQueueName(j.availableTasks.Source(), worker))
+	if err != nil && err != redis.ErrNil {
 		return err
 	}
+	j.detector.Purge(worker)
 
 	return j.janitor.OnPostConcat(cnx, worker)
 }
