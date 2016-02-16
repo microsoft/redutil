@@ -36,8 +36,13 @@ type DefaultLifecycle struct {
 	// Redis.
 	pool *redis.Pool
 
+	// availableTasks is a Redis queue that contains an in-order list of
+	// tasks that need to be worked on. Workers race into this list.
 	availableTasks queue.Queue
-	workingTasks   *queue.DurableQueue
+	// workingTasks contains the list of tasks that this particular worker
+	// is currently working on. See above semantics as to where these items
+	// move to and from.
+	workingTasks *queue.DurableQueue
 
 	// rmu guards registry
 	rmu sync.Mutex
@@ -72,6 +77,9 @@ func NewLifecycle(pool *redis.Pool) *DefaultLifecycle {
 
 var _ Lifecycle = new(DefaultLifecycle)
 
+// Await implements Lifecycle's Await func, blocking until all tasks are either
+// completed or abandoned. If Await in conjunction with a AbandonAll, it will
+// wait until all tasks have been successfully abandoned before returning.
 func (l *DefaultLifecycle) Await() {
 	l.wg.Wait()
 }
@@ -106,9 +114,7 @@ func (l *DefaultLifecycle) StopListening() {
 // Complete marks a task as having been completed, removing it from the
 // worker's queue.
 func (l *DefaultLifecycle) Complete(task *Task) error {
-	l.removeTask(task)
-
-	return nil
+	return l.removeTask(task)
 }
 
 // Abandon marks a task as having failed, pushing it back onto the primary
@@ -182,7 +188,6 @@ func (l *DefaultLifecycle) removeTask(task *Task) (err error) {
 	defer l.rmu.Unlock()
 	cnx := l.pool.Get()
 	defer cnx.Close()
-	defer l.wg.Done()
 
 	i := l.findTaskIndex(task)
 	if i == -1 {
@@ -205,6 +210,7 @@ func (l *DefaultLifecycle) removeTask(task *Task) (err error) {
 	// item or, if not, we'll just ignore it if we read it from the queue.
 	cnx.Do("LREM", l.workingTasks.Dest(), 0, deleteToken)
 
+	l.wg.Done()
 	return nil
 }
 

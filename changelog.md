@@ -2,6 +2,9 @@
 
 ## pubsub
 
+### 2.4 (02-14-2016)
+ * Implement the `worker` package.
+
 ### 2.3.1 (02-13-2016)
  * **Breaking Change**: Allow the specification of a timeout parameter to
    several (previously) infinitely-blocking methods.
