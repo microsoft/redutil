@@ -33,12 +33,26 @@ var _ Strategy = &HashExpireyStrategy{}
 // Times are marshalled using the `const DefaultTimeFormat` which stores times
 // in the ISO8601 format.
 func (s HashExpireyStrategy) Touch(location, ID string, pool *redis.Pool) error {
-	now := time.Now().Format(DefaultTimeFormat)
+	now := time.Now().UTC().Format(DefaultTimeFormat)
 
 	cnx := pool.Get()
 	defer cnx.Close()
 
 	if _, err := cnx.Do("HSET", location, ID, now); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Purge implements the `func Purge` defined in the Strategy interface. It
+// assumes a HASH type is used in Redis to map the IDs of various Hearts,
+// and removes the record for the specified ID from the hash.
+func (s HashExpireyStrategy) Purge(location, ID string, pool *redis.Pool) error {
+	cnx := pool.Get()
+	defer cnx.Close()
+
+	if _, err := cnx.Do("HDEL", location, ID); err != nil {
 		return err
 	}
 
@@ -52,7 +66,7 @@ func (s HashExpireyStrategy) Touch(location, ID string, pool *redis.Pool) error 
 func (s HashExpireyStrategy) Expired(location string,
 	pool *redis.Pool) (expired []string, err error) {
 
-	now := time.Now()
+	now := time.Now().UTC()
 
 	cnx := pool.Get()
 	defer cnx.Close()

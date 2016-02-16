@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/WatchBeam/redutil/heartbeat"
+	"github.com/WatchBeam/redutil/queue"
 	"github.com/garyburd/redigo/redis"
 )
 
@@ -13,7 +14,8 @@ import (
 type state uint8
 
 const (
-	open    state = iota // tasks are running or can be run on the worker
+	idle    state = iota // we've not yet started
+	open                 // tasks are running or can be run on the worker
 	halting              // we're terminating all ongoing tasks
 	closing              // we're waiting for tasks to gracefully close
 	closed               // all tasks have terminated
@@ -27,9 +29,24 @@ const (
 type Worker struct {
 	pool *redis.Pool
 
-	// lifecycle is the lifecycle
+	// availableTasks is a Redis queue that contains an in-order list of
+	// tasks that need to be worked on. Workers race into this list.
+	availableTasks queue.Queue
+	// workingTasks contains the list of tasks that this particular worker
+	// is currently working on. See above semantics as to where these items
+	// move to and from.
+	workingTasks *queue.DurableQueue
+
 	lifecycle Lifecycle
-	heart     heartbeat.Heart
+
+	// The heartbeat components are used to maintain the state of the worker
+	// and to detect dead workers to clean up.
+	detector heartbeat.Detector
+	heart    heartbeat.Heart
+
+	// The janitor is responsible for cleaning up dead workers.
+	janitor       Janitor
+	janitorRunner *janitorRunner
 
 	// smu wraps Worker#state in a loving, mutex-y embrace.
 	smu sync.Mutex
@@ -37,30 +54,70 @@ type Worker struct {
 	state state
 }
 
-const defaultHeartInterval = 3 * time.Second
+const (
+	// Default interval passed into heartbeat.New
+	defaultHeartInterval = 10 * time.Second
+	// Default interval we use to check for dead workers. Note that the first
+	// check will be anywhere in the range [0, monitor interval]; this is
+	// randomized so that workers that start at the same time will not
+	// contest the same locks.
+	defaultMonitorInterval = 120 * time.Second
+)
+
+// Returns the name of the working queue based on the worker's processing
+// source and worker ID. This is purposely NOT readily configurable; this
+// is not something you have to touch for 99% of redutil usage, and
+// incorrectly configuring this can result in Bad Things (dropped
+// jobs, duplicate jobs, etc).
+func getWorkingQueueName(src, id string) string {
+	return fmt.Sprintf("%s:worker_%s", src, id)
+}
 
 // New creates and returns a pointer to a new instance of a Worker. It uses the
-// given redis.Pool, the main queue's keyspace to pull from, and is given a
+// given redis.Pool, the main queue to pull from (`src`), and is given a
 // unique ID through the `id` paramter.
-func New(pool *redis.Pool, queue, id string) *Worker {
+func New(pool *redis.Pool, src, id string) *Worker {
 	heartbeater := heartbeat.New(
 		id,
-		fmt.Sprintf("%s:%s:%s", queue, "ticks", id),
+		fmt.Sprintf("%s:%s:%s", src, "ticks", id),
 		defaultHeartInterval, pool)
 
 	return &Worker{
-		pool:      pool,
-		lifecycle: NewLifecycle(pool, queue, id),
+		pool:           pool,
+		availableTasks: queue.NewByteQueue(pool, src),
+		workingTasks:   queue.NewDurableQueue(pool, src, getWorkingQueueName(src, id)),
+
+		lifecycle: NewLifecycle(pool),
+		detector:  heartbeater.Detector(),
 		heart:     heartbeater.Heart(),
-		state:     closed,
+		janitor:   nilJanitor{},
+
+		state: closed,
 	}
 }
 
-func NewWithLifecycle(pool *redis.Pool, queue, id string, lifecycle Lifecycle) *Worker {
-	w := New(pool, queue, id)
-	w.lifecycle = lifecycle
+// Sets the Lifecycle used for managing job states. Note: this is only safe
+// to call BEFORE calling Start()
+func (w *Worker) SetLifecycle(lf Lifecycle) {
+	w.ensureUnstarted()
+	w.lifecycle = lf
+}
 
-	return w
+// Sets the Janitor interface used to dispose of old workers. This is optional;
+// if you do not need to hook in extra functionality, you don't need to
+// provide a janitor.
+func (w *Worker) SetJanitor(janitor Janitor) {
+	w.ensureUnstarted()
+	w.janitor = janitor
+}
+
+func (w *Worker) ensureUnstarted() {
+	w.smu.Lock()
+	defer w.smu.Unlock()
+
+	if w.state == open {
+		panic("Attempted to alter the worker while it was running.")
+	}
 }
 
 // Start signals the worker to begin receiving tasks from the main queue.
@@ -69,8 +126,13 @@ func (w *Worker) Start() (<-chan *Task, <-chan error) {
 	defer w.smu.Unlock()
 
 	w.state = open
+	w.lifecycle.SetQueues(w.availableTasks, w.workingTasks)
+	w.janitorRunner = newJanitorRunner(w.pool, w.detector, w.janitor, w.availableTasks)
 
-	return w.lifecycle.Listen()
+	errs1 := w.janitorRunner.Start()
+	tasks, errs2 := w.lifecycle.Listen()
+
+	return tasks, concatErrs(errs1, errs2)
 }
 
 // Close stops polling the queue immediately and waits for all tasks to complete
@@ -101,6 +163,7 @@ func (w *Worker) startClosing(fn func()) {
 
 	w.lifecycle.StopListening()
 	w.heart.Close()
+	w.janitorRunner.Close()
 
 	fn()
 

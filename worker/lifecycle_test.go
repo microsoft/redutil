@@ -1,6 +1,7 @@
 package worker_test
 
 import (
+	"github.com/WatchBeam/redutil/queue"
 	"github.com/WatchBeam/redutil/worker"
 	"github.com/stretchr/testify/mock"
 )
@@ -10,6 +11,11 @@ type MockLifecycle struct {
 }
 
 var _ worker.Lifecycle = new(MockLifecycle)
+
+func (l *MockLifecycle) SetQueues(availableTasks queue.Queue,
+	workingTasks *queue.DurableQueue) {
+	l.Called(availableTasks, workingTasks)
+}
 
 func (l *MockLifecycle) Complete(task *worker.Task) error {
 	args := l.Called(task)

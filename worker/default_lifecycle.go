@@ -3,7 +3,6 @@ package worker
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -70,17 +69,10 @@ type DefaultLifecycle struct {
 
 // NewLifecycle allocates and returns a pointer to a new instance of
 // DefaultLifecycle. It uses the specified pool to make connections into Redis
-// and takes a source, which is the keyspace of tasks that need work done, and
-// id is the ID of this particular worker.
-func NewLifecycle(pool *redis.Pool, source, id string) *DefaultLifecycle {
-	workerName := fmt.Sprintf("%s:worker_%s", source, id)
-
-	return &DefaultLifecycle{
-		pool: pool,
-
-		availableTasks: queue.NewByteQueue(pool, source),
-		workingTasks:   queue.NewDurableQueue(pool, source, workerName),
-	}
+// and a queue of available tasks along with a second working tasks queue,
+// which stores the items the lifecycle is currently processing.
+func NewLifecycle(pool *redis.Pool) *DefaultLifecycle {
+	return &DefaultLifecycle{pool: pool}
 }
 
 var _ Lifecycle = new(DefaultLifecycle)
@@ -90,6 +82,12 @@ var _ Lifecycle = new(DefaultLifecycle)
 // wait until all tasks have been successfully abandoned before returning.
 func (l *DefaultLifecycle) Await() {
 	l.wg.Wait()
+}
+
+func (l *DefaultLifecycle) SetQueues(availableTasks queue.Queue,
+	workingTasks *queue.DurableQueue) {
+	l.availableTasks = availableTasks
+	l.workingTasks = workingTasks
 }
 
 // Listen returns a channel of tasks and error that are pulled from the
@@ -151,6 +149,7 @@ func (l *DefaultLifecycle) recv() {
 	for {
 		select {
 		case <-l.closer:
+			close(l.errs)
 			return
 		default:
 			payload, err := l.workingTasks.Pull(time.Second)
