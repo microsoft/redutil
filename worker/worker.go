@@ -61,7 +61,7 @@ const (
 	// check will be anywhere in the range [0, monitor interval]; this is
 	// randomized so that workers that start at the same time will not
 	// contest the same locks.
-	defaultMonitorInterval = 120 * time.Second
+	defaultMonitorInterval = 15 * time.Second
 )
 
 // Returns the name of the working queue based on the worker's processing
