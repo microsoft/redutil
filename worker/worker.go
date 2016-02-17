@@ -79,7 +79,7 @@ func getWorkingQueueName(src, id string) string {
 func New(pool *redis.Pool, src, id string) *Worker {
 	heartbeater := heartbeat.New(
 		id,
-		fmt.Sprintf("%s:%s:%s", src, "ticks", id),
+		fmt.Sprintf("%s:%s", src, "ticks"),
 		defaultHeartInterval, pool)
 
 	return &Worker{
