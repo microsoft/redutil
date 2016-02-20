@@ -2,8 +2,13 @@
 
 ## pubsub
 
+### 2.4.2 (02-19-2016)
+ * Extract a `worker.Worker` interface, and create a `worker.DefaultWorker`
+   implementation.
+
 ### 2.4.1 (02-17-2016)
- * Fix a critical issue in the worker package which prevented janitors from being able to clean up dead workers.
+ * Fix a critical issue in the worker package which prevented janitors from
+   being able to clean up dead workers.
 
 ### 2.4 (02-14-2016)
  * Implement the `worker` package.
