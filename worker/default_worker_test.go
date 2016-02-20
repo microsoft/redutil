@@ -28,7 +28,7 @@ func (suite *WorkerSuite) TestConstruction() {
 	w := worker.New(suite.Pool, "queue", "worker_1")
 	defer w.Close()
 
-	suite.Assert().IsType(&worker.Worker{}, w)
+	suite.Assert().IsType(&worker.DefaultWorker{}, w)
 }
 
 func (suite *WorkerSuite) TestStartPropogatesProcessor() {
