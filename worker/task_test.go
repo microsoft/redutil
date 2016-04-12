@@ -36,6 +36,17 @@ func (suite *TaskSuite) TestBytesReturnsPayload() {
 	suite.Assert().Equal([]byte("hello world"), payload)
 }
 
+func (suite *TaskSuite) TestDumpsBody() {
+	task := worker.NewTask(&MockLifecycle{}, []byte("hello world"))
+	expected := "00000000  68 65 6c 6c 6f 20 77 6f  72 6c 64                 |hello world|\n"
+	suite.Assert().Equal(expected, task.HexDump())
+}
+
+func (suite *TaskSuite) TestStringReturns() {
+	task := worker.NewTask(&MockLifecycle{}, []byte("hello world"))
+	suite.Assert().Equal("hello world", task.String())
+}
+
 func (suite *TaskSuite) TestSucceedingDelegatesToLifecycle() {
 	lifecycle := &MockLifecycle{}
 	lifecycle.On("Complete", mock.Anything).Return(nil)

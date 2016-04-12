@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"encoding/hex"
 	"errors"
 	"sync"
 )
@@ -59,6 +60,17 @@ func (t *Task) IsResolved() bool {
 	defer t.resolvedMu.Unlock()
 
 	return t.resolved
+}
+
+// HexDump returns a byte dump of the task, in the same format as `hexdump -C`.
+// This is useful for debugging/logging purposes.
+func (t *Task) HexDump() string {
+	return hex.Dump(t.Bytes())
+}
+
+// String returns the strinigified contents of the task payload.
+func (t *Task) String() string {
+	return string(t.Bytes())
 }
 
 // guardResolution runs the inner fn only if the task is not already resolved,
