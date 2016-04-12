@@ -68,7 +68,7 @@ func (t *Task) HexDump() string {
 	return hex.Dump(t.Bytes())
 }
 
-// String returns a dump of the task contents as a string.
+// String returns the strinigified contents of the task payload.
 func (t *Task) String() string {
 	return string(t.Bytes())
 }
