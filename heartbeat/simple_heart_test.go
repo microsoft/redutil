@@ -38,11 +38,12 @@ func (suite *SimpleHeartbeatSuite) TestStrategyIsCalledAtInterval() {
 	strategy.On("Touch", "foo", "bar", suite.Pool).Return(nil)
 
 	h := heartbeat.NewSimpleHeart("bar", "foo", 5*time.Millisecond, suite.Pool, strategy)
+	strategy.AssertNumberOfCalls(suite.T(), "Touch", 1)
 	defer h.Close()
 
 	time.Sleep(10 * time.Millisecond)
 
-	strategy.AssertNumberOfCalls(suite.T(), "Touch", 1)
+	strategy.AssertNumberOfCalls(suite.T(), "Touch", 2)
 }
 
 func (suite *SimpleHeartbeatSuite) TestStrategyPropogatesErrors() {
@@ -53,8 +54,9 @@ func (suite *SimpleHeartbeatSuite) TestStrategyPropogatesErrors() {
 	defer h.Close()
 
 	errs := h.Errs()
+	suite.Assert().Len(errs, 1)
 
-	suite.Assert().Len(errs, 0)
+	<-errs
 
 	time.Sleep(150 * time.Millisecond)
 
@@ -71,5 +73,5 @@ func (suite *SimpleHeartbeatSuite) TestCloseStopsCallingStrategy() {
 
 	time.Sleep(10 * time.Millisecond)
 
-	strategy.AssertNumberOfCalls(suite.T(), "Touch", 0)
+	strategy.AssertNumberOfCalls(suite.T(), "Touch", 1)
 }

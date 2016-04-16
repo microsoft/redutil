@@ -13,6 +13,7 @@ type SimpleHeart struct {
 	ID       string
 	Location string
 	Interval time.Duration
+	strategy Strategy
 
 	pool   *redis.Pool
 	closer chan struct{}
@@ -45,11 +46,13 @@ func NewSimpleHeart(id, location string, interval time.Duration, pool *redis.Poo
 
 		pool: pool,
 
-		closer: make(chan struct{}),
-		errs:   make(chan error),
+		closer:   make(chan struct{}),
+		errs:     make(chan error, 1),
+		strategy: strategy,
 	}
 
-	go sh.heartbeat(strategy)
+	go sh.heartbeat()
+	sh.touch()
 
 	return sh
 }
@@ -67,6 +70,14 @@ func (s SimpleHeart) Errs() <-chan error {
 	return s.errs
 }
 
+// touch calls .Touch() on the Heart's strategy and pushes any error that
+// occurred to the errs channel.
+func (s SimpleHeart) touch() {
+	if err := s.strategy.Touch(s.Location, s.ID, s.pool); err != nil {
+		s.errs <- err
+	}
+}
+
 // heartbeat is a function responsible for ticking the updater.
 //
 // It uses a `select` statement to either gather an update from the time.Ticker
@@ -77,16 +88,14 @@ func (s SimpleHeart) Errs() <-chan error {
 // `s.errs` channel, accessible by the `Errs()` function.
 //
 // It runs in its own goroutine.
-func (s *SimpleHeart) heartbeat(strategy Strategy) {
+func (s *SimpleHeart) heartbeat() {
 	ticker := time.NewTicker(s.Interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if err := strategy.Touch(s.Location, s.ID, s.pool); err != nil {
-				s.errs <- err
-			}
+			s.touch()
 		case <-s.closer:
 			return
 		}
