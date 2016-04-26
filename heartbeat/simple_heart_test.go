@@ -33,32 +33,34 @@ func (suite *SimpleHeartbeatSuite) TestConstruction() {
 	suite.Assert().Equal(h.Interval, time.Second)
 }
 
-func (suite *SimpleHeartbeatSuite) TestStrategyIsCalledAtInterval() {
+func (suite *SimpleHeartbeatSuite) TestStrategyIsCalledAtInitializationAndInterval() {
 	strategy := &TestStrategy{}
 	strategy.On("Touch", "foo", "bar", suite.Pool).Return(nil)
 
 	h := heartbeat.NewSimpleHeart("bar", "foo", 5*time.Millisecond, suite.Pool, strategy)
+	strategy.AssertNumberOfCalls(suite.T(), "Touch", 1)
 	defer h.Close()
 
 	time.Sleep(10 * time.Millisecond)
 
-	strategy.AssertNumberOfCalls(suite.T(), "Touch", 1)
+	strategy.AssertNumberOfCalls(suite.T(), "Touch", 2)
 }
 
 func (suite *SimpleHeartbeatSuite) TestStrategyPropogatesErrors() {
 	strategy := &TestStrategy{}
-	strategy.On("Touch", "foo", "bar", suite.Pool).Return(errors.New("some error"))
+	err := errors.New("some error")
+	strategy.On("Touch", "foo", "bar", suite.Pool).Twice().Return(err)
 
 	h := heartbeat.NewSimpleHeart("bar", "foo", 100*time.Millisecond, suite.Pool, strategy)
 	defer h.Close()
 
 	errs := h.Errs()
-
-	suite.Assert().Len(errs, 0)
+	suite.Assert().Len(errs, 1)
+	suite.Assert().Equal(err, <-errs)
 
 	time.Sleep(150 * time.Millisecond)
 
-	suite.Assert().Equal("some error", (<-errs).Error())
+	suite.Assert().Equal(err, <-errs)
 	suite.Assert().Len(errs, 0)
 }
 
@@ -71,5 +73,5 @@ func (suite *SimpleHeartbeatSuite) TestCloseStopsCallingStrategy() {
 
 	time.Sleep(10 * time.Millisecond)
 
-	strategy.AssertNumberOfCalls(suite.T(), "Touch", 0)
+	strategy.AssertNumberOfCalls(suite.T(), "Touch", 1)
 }
