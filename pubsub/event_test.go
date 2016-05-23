@@ -25,10 +25,15 @@ func TestEventBuildsMultipart(t *testing.T) {
 	assert.Equal(t, "prefix:foo:42", e.Name())
 	assert.Equal(t, 3, e.Len())
 
-	assert.Equal(t, 42, e.Int(2))
-	assert.Equal(t, "foo:", e.String(1))
-	assert.Equal(t, "prefix:", e.String(0))
+	assert.Equal(t, "prefix:", e.Get(0).String())
+	id, _ := e.Get(2).Int()
+	assert.Equal(t, "foo:", e.Get(1).String())
+	assert.Equal(t, 42, id)
+}
 
-	assert.Equal(t, interface{}(42), e.Get(2))
-	assert.Equal(t, interface{}("foo:"), e.Get(1))
+func TestEventReturnsZeroOnDNE(t *testing.T) {
+	assert.True(t, NewEvent("foo").Get(1).IsZero())
+	assert.False(t, NewEvent("foo").Get(0).IsZero())
+	assert.True(t, NewEvent("foo", Int(1).As("bar")).Find("bleh").IsZero())
+	assert.False(t, NewEvent("foo", Int(1).As("bar")).Find("bar").IsZero())
 }

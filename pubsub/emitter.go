@@ -12,7 +12,8 @@
 // Pubsub gives gives you an easy way to handle these kinds of subscriptions,
 // without the need for `fmt` on your part or any kind or reflection-based
 // formatting on ours. You create Event structures with typed fields
-// and can later inspect those fields when you receive an event from Redis.
+// and can later inspect those fields when you receive an event from
+// Redis, in a reasonably fluid and very type-safe manner.
 //
 // Simple Event
 //
@@ -20,19 +21,6 @@
 //   pub.Subscribe(pubsub.NewEvent("foo"), function (e pubsub.Event, b []byte) {
 //   	// You're passed the subscribed event and any byte payload
 //   	fmt.Printf("foo happened with payload %#v\n", b)
-//   })
-//
-// A More Complex Event
-//
-//   pub := pubsub.New(cnx)
-//   event := pubsub.NewEvent("foo:",
-//   	pubsub.Int(42),
-//   	pubsub.String(":bar"))
-//
-//   pub.Subscribe(event, function (e pubsub.Event, b []byte) {
-//      // You can inspect the fields in the event itself. For normal events,
-//      // it will simply be what you give it.
-//   	fmt.Printf("just got foo:%d:bar!\n", e.Get(1))
 //   })
 //
 // Patterns and Inspections
@@ -44,8 +32,9 @@
 //
 //   pub.Subscribe(event, function (e pubsub.Event, b []byte) {
 //   	// You can alias fields and look them up by their names. Pattern
-//   	// events will have their "stars" filled in, with strings by default.
-//   	fmt.Printf("just got foo:%s:bar!\n", e.Find("id"))
+//   	// events will have their "stars" filled in.
+//   	id, _ := e.Find("id").Int()
+//   	fmt.Printf("just got foo:%d:bar!\n", id)
 //   })
 package pubsub
 

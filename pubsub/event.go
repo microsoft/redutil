@@ -8,27 +8,47 @@ import (
 // Fields are concatenated into events which can
 // be listened to over liveloading.
 type Field struct {
-	// Value is the underlying value of the field
-	Value interface{}
+	valid bool
 	alias string
-	str   string
+	value string
 }
 
 // As sets the alias of the field in the event list. You may then call
 // Event.Find(alias) to look up the value of the field in the event.
 func (f Field) As(alias string) Field {
-	f.alias = alias
-	return f
+	return Field{valid: f.valid, value: f.value, alias: alias}
 }
 
+// IsZero returns true if the field is empty. A call to Event.Find() or
+// Event.Get() with a non-existent alias or index will return such a struct.
+func (f Field) IsZero() bool { return !f.valid }
+
+// String returns the field value as a string.
+func (f Field) String() string { return f.value }
+
+// String returns the field value as a byte slice.
+func (f Field) Bytes() []byte { return []byte(f.value) }
+
+// Int attempts to parse and return the field value as an integer.
+func (f Field) Int() (int, error) {
+	x, err := strconv.ParseInt(f.value, 10, 32)
+	return int(x), err
+}
+
+// Uint64 attempts to parse and return the field value as a uint64.
+func (f Field) Uint64() (uint64, error) { return strconv.ParseUint(f.value, 10, 64) }
+
+// Int64 attempts to parse and return the field value as a int64.
+func (f Field) Int64() (int64, error) { return strconv.ParseInt(f.value, 10, 64) }
+
 // String creates and returns a Field containing a string.
-func String(str string) Field { return Field{Value: str, str: str} }
+func String(str string) Field { return Field{valid: true, value: str} }
 
 // Int creates and returns a Field containing an integer.
-func Int(x int) Field { return Field{Value: x, str: strconv.Itoa(x)} }
+func Int(x int) Field { return Field{valid: true, value: strconv.Itoa(x)} }
 
 // Star returns a field containing the Kleene star `*` for pattern subscription.
-func Star() Field { return Field{Value: "*", str: "*"} }
+func Star() Field { return Field{valid: true, value: "*"} }
 
 // An Event is passed to an Emitter to manage which
 // events a Listener is subscribed to.
@@ -40,36 +60,37 @@ type Event struct {
 }
 
 // Len returns the number of fields contained in the event.
-func (e *Event) Len() int { return len(e.fields) }
+func (e Event) Len() int { return len(e.fields) }
 
 // Get returns the value of a field at index `i` within the event. If the
-// field does not exist, nil will be returned.
-func (e *Event) Get(i int) interface{} {
-	if len(e.fields) >= i {
-		return nil
+// field does not exist, an empty struct will be returned.
+func (e Event) Get(i int) Field {
+	if len(e.fields) <= i {
+		return Field{valid: false}
 	}
 
-	return e.fields[i].Value
+	return e.fields[i]
 }
 
 // Find looks up a field value by its alias. This is most useful in pattern
 // subscriptions where might use Find to look up a parameterized property.
-func (e *Event) Find(alias string) interface{} {
+// If the alias does not exist, an empty struct will be returned.
+func (e Event) Find(alias string) Field {
 	for _, field := range e.fields {
 		if field.alias == alias {
-			return field.Value
+			return field
 		}
 	}
 
-	return nil
+	return Field{valid: false}
 }
 
 // Name returns name of the event, formed by a concatenation of all the
 // event fields.
-func (e *Event) Name() string {
+func (e Event) Name() string {
 	strs := make([]string, len(e.fields))
 	for i, field := range e.fields {
-		strs[i] = field.str
+		strs[i] = field.value
 	}
 
 	return strings.Join(strs, "")
