@@ -38,43 +38,33 @@
 //   })
 package pubsub
 
-// ErrSubscribed is returned from Emitter.Subscribe when the consumer attempts
-// to subscribe a single listener to an event multiple times.
-type ErrSubscribed struct{ e Event }
-
-// Error implements error.Error
-func (e ErrSubscribed) Error() string {
-	return "redutil/pubsub2: attempted to duplicate " +
-		"subscription to `" + e.e.Name() + "`"
-}
-
-// ErrNotSubscribed is returned from Emitter.Unsubscribe when the consumer
-// attempts to unsubscribe a listener who was not subscribed to an event.
-type ErrNotSubscribed struct{ e Event }
-
-// Error implements error.Error
-func (e ErrNotSubscribed) Error() string {
-	return "redutil/pubsub2: attempted to unsubscribe from `" +
-		e.e.Name() + "` but was not subscribed!"
-}
-
-// The Listener is a function which, when passed to an Emitter, is invoked
+// The Listener contains function which, when passed to an Emitter, is invoked
 // when an event occurs. It's invoked with the corresponding subscribed
 // Event and the event's payload.
 //
 // Note that if a listener is subscribed to multiple overlapping events such
-// as `foo:bar` and `foo:*`, the choice of the Event the Listener is
-// called with is undefined.
-type Listener func(e Event, b []byte)
+// as `foo:bar` and `foo:*`, the listener will be called multiple times.
+type Listener interface {
+	Handle(e Event, b []byte)
+}
 
 type Emitter interface {
 	// Subscribe registers that the provided lister wants to be notified
 	// of the given Event. If the Listener is already subscribed to the
-	// event, an ErrSubscribed error will be returned.
-	Subscribe(e Event, l Listener) error
+	// event, it will be added again and the listener will be invoked
+	// multiple times when that event occurs.
+	Subscribe(e Event, l Listener)
 
 	// Unsubscribe unregisters a listener from an event. If the listener
-	// is not subscribed to the event, an ErrNotSubscribed error will
-	// be returned.
-	Unsubscribe(e Event, l Listener) error
+	// is not subscribed to the event, this will be a noop. Note that this
+	// only unsubscribes *one* listener from the event; if it's subscribed
+	// multiple times, it will need to unsubscribe multiple times.
+	Unsubscribe(e Event, l Listener)
+
+	// Errs returns a channel of errors that occur asynchronously on
+	// the Redis connection.
+	Errs() <-chan error
+
+	// Close frees resources associated with the Emitter.
+	Close()
 }

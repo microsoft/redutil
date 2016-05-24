@@ -1,9 +1,43 @@
 package pubsub
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
+
+// EventType is used to distinguish between pattern and plain text events.
+type EventType int
+
+const (
+	PlainEvent EventType = iota
+	PatternEvent
+)
+
+// SubCommand returns the command issued to subscribe to the event in Redis.
+func (e EventType) SubCommand() string {
+	switch e {
+	case PlainEvent:
+		return "SUBSCRIBE"
+	case PatternEvent:
+		return "PSUBSCRIBE"
+	default:
+		panic("unknown event type")
+	}
+}
+
+// UnsubCommand returns the command issued
+// o unsubscribe from the event in Redis.
+func (e EventType) UnsubCommand() string {
+	switch e {
+	case PlainEvent:
+		return "UNSUBSCRIBE"
+	case PatternEvent:
+		return "PUNSUBSCRIBE"
+	default:
+		panic("unknown event type")
+	}
+}
 
 // Fields are concatenated into events which can
 // be listened to over liveloading.
@@ -54,9 +88,7 @@ func Star() Field { return Field{valid: true, value: "*"} }
 // events a Listener is subscribed to.
 type Event struct {
 	fields []Field
-
-	sub   string
-	unsub string
+	kind   EventType
 }
 
 // Len returns the number of fields contained in the event.
@@ -96,22 +128,40 @@ func (e Event) Name() string {
 	return strings.Join(strs, "")
 }
 
+// Returns the type of the event.
+func (e Event) Type() EventType {
+	return e.kind
+}
+
+// toFieldFromString attempts to convert v from a string or byte slice into
+// a Field, if it isn't already one. It panics if v is none of the above.
+func toFieldFromString(v interface{}) Field {
+	switch t := v.(type) {
+	case string:
+		return String(t)
+	case []byte:
+		return String(string(t))
+	case Field:
+		return t
+	default:
+		panic(fmt.Sprintf("Expected string or field when creating an event, got %T", v))
+	}
+}
+
 // NewEvent creates and returns a new event based off the series of fields.
 // This translates to a Redis SUBSCRIBE call.
-func NewEvent(str string, fields ...Field) Event {
+func NewEvent(name interface{}, fields ...Field) Event {
 	return Event{
-		fields: append([]Field{String(str)}, fields...),
-		sub:    "SUBSCRIBE",
-		unsub:  "UNSUBSCRIBE",
+		fields: append([]Field{toFieldFromString(name)}, fields...),
+		kind:   PlainEvent,
 	}
 }
 
 // NewPatternEvent creates and returns a new event pattern off the series
 // of fields. This translates to a Redis PSUBSCRIBE call.
-func NewPatternEvent(str string, fields ...Field) Event {
+func NewPatternEvent(name interface{}, fields ...Field) Event {
 	return Event{
-		fields: append([]Field{String(str)}, fields...),
-		sub:    "PSUBSCRIBE",
-		unsub:  "PUNSUBSCRIBE",
+		fields: append([]Field{toFieldFromString(name)}, fields...),
+		kind:   PatternEvent,
 	}
 }

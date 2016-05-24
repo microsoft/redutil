@@ -6,17 +6,22 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestEventTypes(t *testing.T) {
+	assert.Equal(t, "SUBSCRIBE", PlainEvent.SubCommand())
+	assert.Equal(t, "UNSUBSCRIBE", PlainEvent.UnsubCommand())
+	assert.Equal(t, "PSUBSCRIBE", PatternEvent.SubCommand())
+	assert.Equal(t, "PUNSUBSCRIBE", PatternEvent.UnsubCommand())
+}
+
 func TestEventBuildsString(t *testing.T) {
 	e := NewEvent("foo")
-	assert.Equal(t, e.sub, "SUBSCRIBE")
-	assert.Equal(t, e.unsub, "UNSUBSCRIBE")
+	assert.Equal(t, PlainEvent, e.Type())
 	assert.Equal(t, e.Name(), "foo")
 }
 
 func TestEventBuildsPattern(t *testing.T) {
 	e := NewPatternEvent("foo")
-	assert.Equal(t, e.sub, "PSUBSCRIBE")
-	assert.Equal(t, e.unsub, "PUNSUBSCRIBE")
+	assert.Equal(t, PatternEvent, e.Type())
 	assert.Equal(t, e.Name(), "foo")
 }
 

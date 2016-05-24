@@ -28,6 +28,20 @@ func (s *RedisSuite) SetupTest() {
 	})
 }
 
+// MustDo executes the command on a new Redis connection and panics if there's
+// an error executing it.
+func (r *RedisSuite) MustDo(cmd string, args ...interface{}) (reply interface{}) {
+	cnx := r.Pool.Get()
+	defer cnx.Close()
+
+	reply, err := cnx.Do(cmd, args...)
+	if err != nil {
+		panic(err)
+	}
+
+	return reply
+}
+
 // WithRedis runs a function and passes it a valid redis.Conn instance. It does
 // so by obtaining the redis.Conn instance from the owned *redis.Pool and then
 // closing once the outer function has returned.
