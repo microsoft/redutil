@@ -42,3 +42,21 @@ func TestEventReturnsZeroOnDNE(t *testing.T) {
 	assert.True(t, NewEvent("foo", Int(1).As("bar")).Find("bleh").IsZero())
 	assert.False(t, NewEvent("foo", Int(1).As("bar")).Find("bar").IsZero())
 }
+
+func TestEventMatchesPattern(t *testing.T) {
+	tt := []struct {
+		event   Event
+		channel string
+	}{
+		{NewPatternEvent("foo"), "foo"},
+		{NewPatternEvent("foo", Star()), "foo"},
+		{NewPatternEvent("foo", Star()), "fooasdf"},
+		{NewPatternEvent("foo", Star(), String("bar")), "foo42bar"},
+		{NewPatternEvent("foo", Star(), String("bar"), Star()), "foo42bar"},
+		{NewPatternEvent("foo", Star(), String("bar"), Star()), "foo42bar42"},
+	}
+
+	for _, test := range tt {
+		assert.Equal(t, test.channel, matchPatternAgainst(test.event, test.channel).Name())
+	}
+}

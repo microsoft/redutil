@@ -197,6 +197,10 @@ func (p *PubsubEmitter) resubscribe() {
 		}
 
 		for kind, recs := range p.subs {
+			if recs == nil {
+				continue
+			}
+
 			for _, ev := range recs.list {
 				p.send <- command{
 					command: EventType(kind).SubCommand(),
