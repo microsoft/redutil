@@ -222,10 +222,9 @@ func matchPatternAgainst(ev Event, channel string) Event {
 	pos := 0
 	chlen := len(channel)
 	num := len(ev.fields)
-	for i := 0; i < num; {
+	for i := 0; i < num; i++ {
 		field := ev.fields[i]
 		vallen := len(field.value)
-		println(field.pattern)
 
 		// Fail if the field is a pattern and the current character does not
 		// contain one of the alternatives.
@@ -246,11 +245,6 @@ func matchPatternAgainst(ev Event, channel string) Event {
 
 		// Eat stars, yum
 		if field.pattern == patternStar {
-			// Duplicate stars do nothing.
-			for i < num && ev.fields[i+1].pattern == patternStar {
-				i++
-			}
-
 			// If this is the last component, eat the rest of the channel.
 			if i == num-1 {
 				out.fields[i] = String(channel[pos:])
@@ -263,10 +257,10 @@ func matchPatternAgainst(ev Event, channel string) Event {
 			// else on the end.
 			tail := ev.slice(i+1, num)
 			for end := pos; end < chlen; end++ {
-				filled := matchPatternAgainst(tail, channel[pos:])
-				if !filled.isZero() {
+				tail := matchPatternAgainst(tail, channel[end:])
+				if !tail.isZero() {
 					out.fields[i] = String(channel[pos:end])
-					return tail.concat(filled)
+					return out.slice(0, i+1).concat(tail)
 				}
 			}
 
@@ -276,7 +270,7 @@ func matchPatternAgainst(ev Event, channel string) Event {
 
 		// Otherwise it's a plain text match. Make sure it actually matches,
 		// then add it on.
-		if vallen+pos >= chlen || channel[pos:pos+vallen] != field.value {
+		if vallen+pos > chlen || channel[pos:pos+vallen] != field.value {
 			return Event{}
 		}
 
