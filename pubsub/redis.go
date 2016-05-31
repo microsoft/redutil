@@ -166,6 +166,7 @@ func (p *PubsubEmitter) work() {
 			return
 		case data := <-p.send:
 			write.Data() <- data
+			data.written <- struct{}{}
 		case event := <-read.Data():
 			go p.handleEvent(event)
 		case err := <-read.Errs():
@@ -186,11 +187,14 @@ func (p *PubsubEmitter) resubscribe() {
 
 	go func() {
 		// Drain the "sent" channels. Channels added to the sent channel are
-		// already recorded in the list and we don't need to dupe them.
+		// already recorded in the list and we don't need to dupe them. Do
+		// store the callback, however.
+		toWrite := map[string]chan<- struct{}{}
 	L:
 		for {
 			select {
-			case <-p.send:
+			case s := <-p.send:
+				toWrite[s.channel] = s.written
 			default:
 				break L
 			}
@@ -202,9 +206,17 @@ func (p *PubsubEmitter) resubscribe() {
 			}
 
 			for _, ev := range recs.list {
+				var ch chan<- struct{}
+				if existing, ok := toWrite[ev.name]; ok {
+					ch = existing
+				} else {
+					ch = make(chan struct{}, 1)
+				}
+
 				p.send <- command{
 					command: EventType(kind).SubCommand(),
-					args:    []interface{}{ev.name},
+					channel: ev.name,
+					written: ch,
 				}
 			}
 		}
@@ -222,7 +234,10 @@ func (p *PubsubEmitter) handleEvent(data interface{}) {
 		rec.Emit(rec.ev, t.Data)
 
 	case redis.PMessage:
-		// todo
+		p.subsMu.Lock()
+		rec := p.subs[PatternEvent].FindCopy(t.Pattern)
+		p.subsMu.Unlock()
+		rec.Emit(matchPatternAgainst(rec.ev, t.Channel), t.Data)
 
 	}
 }
@@ -239,10 +254,14 @@ func (p *PubsubEmitter) Subscribe(ev Event, l Listener) {
 	p.subsMu.Unlock()
 
 	if count == 1 {
+		written := make(chan struct{}, 1)
 		p.send <- command{
 			command: ev.Type().SubCommand(),
-			args:    []interface{}{ev.Name()},
+			channel: ev.Name(),
+			written: written,
 		}
+
+		<-written
 	}
 }
 
@@ -253,10 +272,14 @@ func (p *PubsubEmitter) Unsubscribe(ev Event, l Listener) {
 	p.subsMu.Unlock()
 
 	if count == 0 {
+		written := make(chan struct{}, 1)
 		p.send <- command{
 			command: ev.Type().UnsubCommand(),
-			args:    []interface{}{ev.Name()},
+			channel: ev.Name(),
+			written: written,
 		}
+
+		<-written
 	}
 }
 

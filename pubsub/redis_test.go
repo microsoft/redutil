@@ -186,6 +186,22 @@ func (r *RedisPubsubSuite) TestCallsMultipleListeners() {
 	r.MustDo("PUBLISH", "foo", body3)
 }
 
+func (r *RedisPubsubSuite) TestsCallsWithFancyPatterns() {
+	cnx := r.Pool.Get()
+	defer cnx.Close()
+
+	l1 := newMockListener()
+	defer l1.AssertExpectations(r.T())
+
+	ev := NewPatternEvent("foo:", Int(42), String(":bar"))
+	body1 := []byte("bar1")
+	l1.On("Handle", ev, body1).Return()
+	r.emitter.Subscribe(NewPatternEvent(String("foo:"), Star(), String(":bar")), l1)
+
+	r.MustDo("PUBLISH", "foo:42:bar", body1)
+	l1.waitForCall()
+}
+
 func (r *RedisPubsubSuite) TestResubscribesWhenDies() {
 	cnx := r.Pool.Get()
 	defer cnx.Close()

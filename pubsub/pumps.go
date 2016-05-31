@@ -64,7 +64,8 @@ func (r *readPump) Close() { r.closer <- struct{}{} }
 
 type command struct {
 	command string
-	args    []interface{}
+	channel string
+	written chan<- struct{}
 }
 
 // writePump tries to write data sent over the channel to a connection.
@@ -91,7 +92,7 @@ func (r *writePump) Work() {
 	for {
 		select {
 		case data := <-r.data:
-			r.cnx.Send(data.command, data.args...)
+			r.cnx.Send(data.command, data.channel)
 			if err := r.cnx.Flush(); err != nil {
 				select {
 				case r.errs <- err:
