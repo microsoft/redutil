@@ -193,10 +193,10 @@ func (r *RedisPubsubSuite) TestsCallsWithFancyPatterns() {
 	l1 := newMockListener()
 	defer l1.AssertExpectations(r.T())
 
-	ev := NewPatternEvent("foo:", Int(42), String(":bar"))
+	ev := NewPattern("foo:").Int(42).String(":bar")
 	body1 := []byte("bar1")
 	l1.On("Handle", ev, body1).Return()
-	r.emitter.Subscribe(NewPatternEvent(String("foo:"), Star(), String(":bar")), l1)
+	r.emitter.Subscribe(NewPattern().String("foo:").Star().String(":bar"), l1)
 
 	r.MustDo("PUBLISH", "foo:42:bar", body1)
 	l1.waitForCall()

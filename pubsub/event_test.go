@@ -23,13 +23,13 @@ func TestEventBuildsString(t *testing.T) {
 }
 
 func TestEventBuildsPattern(t *testing.T) {
-	e := NewPatternEvent("foo")
+	e := NewPattern("foo")
 	assert.Equal(t, PatternEvent, e.Type())
 	assert.Equal(t, e.Name(), "foo")
 }
 
 func TestEventBuildsMultipart(t *testing.T) {
-	e := NewEvent("prefix:", String("foo:"), Int(42))
+	e := NewEvent("prefix:").String("foo:").Int(42)
 	assert.Equal(t, "prefix:foo:42", e.Name())
 	assert.Equal(t, 3, e.Len())
 
@@ -42,8 +42,8 @@ func TestEventBuildsMultipart(t *testing.T) {
 func TestEventReturnsZeroOnDNE(t *testing.T) {
 	assert.True(t, NewEvent("foo").Get(1).IsZero())
 	assert.False(t, NewEvent("foo").Get(0).IsZero())
-	assert.True(t, NewEvent("foo", Int(1).As("bar")).Find("bleh").IsZero())
-	assert.False(t, NewEvent("foo", Int(1).As("bar")).Find("bar").IsZero())
+	assert.True(t, NewEvent("foo").Int(1).As("bar").Find("bleh").IsZero())
+	assert.False(t, NewEvent("foo").Int(1).As("bar").Find("bar").IsZero())
 }
 
 func TestEventMatchesPattern(t *testing.T) {
@@ -52,21 +52,21 @@ func TestEventMatchesPattern(t *testing.T) {
 		event   Event
 		channel string
 	}{
-		{true, NewPatternEvent("foo"), "foo"},
-		{false, NewPatternEvent("foo"), "bar"},
-		{false, NewPatternEvent("fooo"), "foo"},
-		{false, NewPatternEvent("foo"), "fooo"},
+		{true, NewPattern("foo"), "foo"},
+		{false, NewPattern("foo"), "bar"},
+		{false, NewPattern("fooo"), "foo"},
+		{false, NewPattern("foo"), "fooo"},
 
-		{true, NewPatternEvent("foo", Star()), "foo"},
-		{true, NewPatternEvent("foo", Star()), "fooasdf"},
-		{true, NewPatternEvent("foo", Star(), String("bar")), "foo42bar"},
-		{false, NewPatternEvent("foo", Star(), String("nar")), "foo42bar"},
-		{true, NewPatternEvent("foo", Star(), String("bar"), Star()), "foo42bar"},
-		{true, NewPatternEvent("foo", Star(), String("bar"), Star()), "foo42bar42"},
-		{false, NewPatternEvent("foo", Star(), String("baz"), Star()), "foo42bar42"},
+		{true, NewPattern("foo").Star(), "foo"},
+		{true, NewPattern("foo").Star(), "fooasdf"},
+		{true, NewPattern("foo").Star().String("bar"), "foo42bar"},
+		{false, NewPattern("foo").Star().String("nar"), "foo42bar"},
+		{true, NewPattern("foo").Star().String("bar").Star(), "foo42bar"},
+		{true, NewPattern("foo").Star().String("bar").Star(), "foo42bar42"},
+		{false, NewPattern("foo").Star().String("baz").Star(), "foo42bar42"},
 
-		{false, NewPatternEvent("foo", Alternatives("123")), "foo6"},
-		{true, NewPatternEvent("foo", Alternatives("123")), "foo2"},
+		{false, NewPattern("foo").Alternatives("123"), "foo6"},
+		{true, NewPattern("foo").Alternatives("123"), "foo2"},
 	}
 
 	for _, test := range tt {
@@ -86,13 +86,13 @@ func TestFuzz(t *testing.T) {
 	}
 
 	fields := []struct {
-		Field    Field
-		Matching string
+		Transform func(e Event) Event
+		Matching  string
 	}{
-		{Star(), "adsf"},
-		{String("foo"), "foo"},
-		{String("bar"), "bar"},
-		{Alternatives("123"), "2"},
+		{func(e Event) Event { return e.Star() }, "adsf"},
+		{func(e Event) Event { return e.String("foo") }, "foo"},
+		{func(e Event) Event { return e.String("bar") }, "bar"},
+		{func(e Event) Event { return e.Alternatives("123") }, "2"},
 	}
 	// Transition matrix for fields, by index. Given an [x, y], field[y] has
 	// a matrix[x][y] chance of transitioning into field[x] next
@@ -106,12 +106,12 @@ func TestFuzz(t *testing.T) {
 	fmt.Println("")
 
 	for k := 0; true; k++ {
-		list := []Field{}
+		event := NewPattern()
 		matching := ""
 
 		// 1. build the event
-		for i := rand.Intn(len(fields)); len(list) == 0 || rand.Float64() < 0.8; {
-			list = append(list, fields[i].Field)
+		for i := rand.Intn(len(fields)); len(event.fields) == 0 || rand.Float64() < 0.8; {
+			event = fields[i].Transform(event)
 			matching += fields[i].Matching
 
 			x := rand.Float64()
@@ -125,7 +125,6 @@ func TestFuzz(t *testing.T) {
 			}
 		}
 
-		event := NewPatternEvent(list[0], list[1:]...)
 		if matching != matchPatternAgainst(event, matching).Name() {
 			panic(fmt.Sprintf("%s ∉ %s", matching, event.Name()))
 		}

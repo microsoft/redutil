@@ -57,12 +57,6 @@ type Field struct {
 	pattern patternType
 }
 
-// As sets the alias of the field in the event list. You may then call
-// Event.Find(alias) to look up the value of the field in the event.
-func (f Field) As(alias string) Field {
-	return Field{valid: f.valid, value: f.value, alias: alias}
-}
-
 // IsZero returns true if the field is empty. A call to Event.Find() or
 // Event.Get() with a non-existent alias or index will return such a struct.
 func (f Field) IsZero() bool { return !f.valid }
@@ -85,33 +79,65 @@ func (f Field) Uint64() (uint64, error) { return strconv.ParseUint(f.value, 10, 
 // Int64 attempts to parse and return the field value as a int64.
 func (f Field) Int64() (int64, error) { return strconv.ParseInt(f.value, 10, 64) }
 
-// String creates and returns a Field containing a string.
-func String(str string) Field { return Field{valid: true, value: str} }
-
-// Int creates and returns a Field containing an integer.
-func Int(x int) Field { return Field{valid: true, value: strconv.Itoa(x)} }
-
-// Star returns a field containing the Kleene star `*` for pattern subscription.
-func Star() Field { return Field{valid: true, value: "*", pattern: patternStar} }
-
-// Placeholder returns a field containing a `?` for a placeholder in Redis patterns.
-func Placeholder() Field { return Field{valid: true, value: "?", pattern: patternPlaceholder} }
-
-// Alternatives returns a field with the alts wrapped in brackets, to match
-// one of them in a Redis pattern.
-func Alternatives(alts string) Field {
-	return Field{
-		valid:   true,
-		value:   "[" + alts + "]",
-		pattern: patternAlts,
-	}
-}
-
 // An Event is passed to an Emitter to manage which
 // events a Listener is subscribed to.
 type Event struct {
 	fields []Field
 	kind   EventType
+}
+
+// As sets the alias of the last field in the event list. You may then call
+// Event.Find(alias) to look up the value of the field in the event.
+func (e Event) As(alias string) Event {
+	e.fields[len(e.fields)-1].alias = alias
+	return e
+}
+
+// String creates a Field containing a string.
+func (e Event) String(str string) Event {
+	e.fields = append(e.fields, Field{valid: true, value: str})
+	return e
+}
+
+// Int creates a Field containing an integer.
+func (e Event) Int(x int) Event {
+	e.fields = append(e.fields, Field{valid: true, value: strconv.Itoa(x)})
+	return e
+}
+
+// Star creates a Field containing the Kleene star `*` for pattern subscription,
+// and chains it on to the Event.
+func (e Event) Star() Event {
+	e.assertPattern()
+	e.fields = append(e.fields, Field{valid: true, value: "*", pattern: patternStar})
+	return e
+}
+
+// Placeholder creates a field containing a `?` for a placeholder in Redis patterns,
+// and chains it on to the event.
+func (e Event) Placeholder() Event {
+	e.assertPattern()
+	e.fields = append(e.fields, Field{valid: true, value: "?", pattern: patternPlaceholder})
+	return e
+}
+
+// Alternatives creates a field with the alts wrapped in brackets, to match
+// one of them in a Redis pattern, and chains it on to the event.
+func (e Event) Alternatives(alts string) Event {
+	e.assertPattern()
+	e.fields = append(e.fields, Field{
+		valid:   true,
+		value:   "[" + alts + "]",
+		pattern: patternAlts,
+	})
+	return e
+}
+
+// assertPattern panics if the event is not a Pattern type.
+func (e Event) assertPattern() {
+	if e.kind != PatternEvent {
+		panic("That operation is only valid on pattern events created with NewPattern()")
+	}
 }
 
 // Len returns the number of fields contained in the event.
@@ -170,37 +196,33 @@ func (e Event) isZero() bool {
 	return e.kind == 0
 }
 
-// toFieldFromString attempts to convert v from a string or byte slice into
-// a Field, if it isn't already one. It panics if v is none of the above.
-func toFieldFromString(v interface{}) Field {
-	switch t := v.(type) {
-	case string:
-		return String(t)
-	case []byte:
-		return String(string(t))
-	case Field:
-		return t
-	default:
-		panic(fmt.Sprintf("Expected string or field when creating an event, got %T", v))
+// applyFields attempts to convert the values from a string or byte slice into
+// a Field. It panics if a value is none of the above.
+func applyFields(event Event, values []interface{}) Event {
+	for _, v := range values {
+		switch t := v.(type) {
+		case string:
+			event = event.String(t)
+		case []byte:
+			event = event.String(string(t))
+		default:
+			panic(fmt.Sprintf("Expected string or field when creating an event, got %T", v))
+		}
 	}
+
+	return event
 }
 
 // NewEvent creates and returns a new event based off the series of fields.
 // This translates to a Redis SUBSCRIBE call.
-func NewEvent(name interface{}, fields ...Field) Event {
-	return Event{
-		fields: append([]Field{toFieldFromString(name)}, fields...),
-		kind:   PlainEvent,
-	}
+func NewEvent(fields ...interface{}) Event {
+	return applyFields(Event{kind: PlainEvent}, fields)
 }
 
 // NewPatternEvent creates and returns a new event pattern off the series
 // of fields. This translates to a Redis PSUBSCRIBE call.
-func NewPatternEvent(name interface{}, fields ...Field) Event {
-	return Event{
-		fields: append([]Field{toFieldFromString(name)}, fields...),
-		kind:   PatternEvent,
-	}
+func NewPattern(fields ...interface{}) Event {
+	return applyFields(Event{kind: PatternEvent}, fields)
 }
 
 // Matches the special characters of an event against a specific channel,
@@ -215,7 +237,7 @@ func matchPatternAgainst(ev Event, channel string) Event {
 	}
 
 	out := Event{
-		fields: make([]Field, len(ev.fields)),
+		fields: make([]Field, 0, len(ev.fields)),
 		kind:   PatternEvent,
 	}
 
@@ -238,7 +260,7 @@ func matchPatternAgainst(ev Event, channel string) Event {
 			if pos == chlen {
 				return Event{}
 			}
-			out.fields[i] = String(string(channel[pos]))
+			out = out.String(string(channel[pos]))
 			pos++
 			continue
 		}
@@ -247,7 +269,7 @@ func matchPatternAgainst(ev Event, channel string) Event {
 		if field.pattern == patternStar {
 			// If this is the last component, eat the rest of the channel.
 			if i == num-1 {
-				out.fields[i] = String(channel[pos:])
+				out = out.String(channel[pos:])
 				return out
 			}
 
@@ -259,7 +281,7 @@ func matchPatternAgainst(ev Event, channel string) Event {
 			for end := pos; end < chlen; end++ {
 				tail := matchPatternAgainst(tail, channel[end:])
 				if !tail.isZero() {
-					out.fields[i] = String(channel[pos:end])
+					out = out.String(channel[pos:end])
 					return out.slice(0, i+1).concat(tail)
 				}
 			}
@@ -274,7 +296,7 @@ func matchPatternAgainst(ev Event, channel string) Event {
 			return Event{}
 		}
 
-		out.fields[i] = field
+		out.fields = append(out.fields, field)
 		pos += vallen
 	}
 
