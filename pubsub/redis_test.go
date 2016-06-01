@@ -94,7 +94,7 @@ func TestRecordsGetCopies(t *testing.T) {
 
 type RedisPubsubSuite struct {
 	*test.RedisSuite
-	emitter *PubsubEmitter
+	emitter *Pubsub
 }
 
 func TestRedisPubsubSuite(t *testing.T) {
@@ -106,7 +106,7 @@ func TestRedisPubsubSuite(t *testing.T) {
 }
 
 func (r *RedisPubsubSuite) SetupTest() {
-	r.emitter = NewPubsubEmitter(r.Pool)
+	r.emitter = NewPubsub(r.Pool)
 }
 
 func (r *RedisPubsubSuite) TearDownTest() {

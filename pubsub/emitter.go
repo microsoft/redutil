@@ -1,4 +1,4 @@
-// The pubsub package implements helpers to connect to and read events from
+// Package pubsub implements helpers to connect to and read events from
 // Redis in a reliable way.
 //
 // Subscriptions are handled on a Redis connection; multiple listeners can
@@ -26,9 +26,10 @@
 // Patterns and Inspections
 //
 //   pub := pubsub.New(cnx)
-//   event := pubsub.NewPatternEvent("foo:",
-//   	pubsub.Star().As("id"),
-//   	pubsub.String(":bar"))
+//   event := pubsub.NewPattern().
+//   	String("foo:").
+//   	Start().As("id").
+//   	String(":bar")
 //
 //   pub.Subscribe(event, function (e pubsub.Event, b []byte) {
 //   	// You can alias fields and look them up by their names. Pattern
@@ -48,6 +49,7 @@ type Listener interface {
 	Handle(e Event, b []byte)
 }
 
+// Emitter is the primary interface to interact with pubsub.
 type Emitter interface {
 	// Subscribe registers that the provided lister wants to be notified
 	// of the given Event. If the Listener is already subscribed to the

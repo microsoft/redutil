@@ -99,9 +99,9 @@ func (r *recordList) Remove(ev Event, fn Listener) int {
 	return 0
 }
 
-// PubsubEmitter is an implementation of the Emitter interface using
+// Pubsub is an implementation of the Emitter interface using
 // Redis pupsub.
-type PubsubEmitter struct {
+type Pubsub struct {
 	pool   *redis.Pool
 	errs   chan error
 	closer chan struct{}
@@ -112,10 +112,10 @@ type PubsubEmitter struct {
 	subs   []*recordList
 }
 
-// NewPubsubEmitter creates a new Emitter based on pubsub on the provided
+// NewPubsub creates a new Emitter based on pubsub on the provided
 // Redis pool.
-func NewPubsubEmitter(pool *redis.Pool) *PubsubEmitter {
-	ps := &PubsubEmitter{
+func NewPubsub(pool *redis.Pool) *Pubsub {
+	ps := &Pubsub{
 		pool:   pool,
 		errs:   make(chan error),
 		closer: make(chan struct{}),
@@ -131,10 +131,10 @@ func NewPubsubEmitter(pool *redis.Pool) *PubsubEmitter {
 	return ps
 }
 
-var _ Emitter = new(PubsubEmitter)
+var _ Emitter = new(Pubsub)
 
 // Inner working loop for the emitter, runs until .Close() is called.
-func (p *PubsubEmitter) work() {
+func (p *Pubsub) work() {
 	var (
 		cnx   redis.Conn
 		read  *readPump
@@ -182,7 +182,7 @@ func (p *PubsubEmitter) work() {
 // resubscribe flushes the `send` queue and replaces it with commands
 // to resubscribe to all previously-subscribed-to channels. This will
 // NOT block until all subs are resubmitted, only until we get a lock.
-func (p *PubsubEmitter) resubscribe() {
+func (p *Pubsub) resubscribe() {
 	p.subsMu.Lock()
 
 	go func() {
@@ -225,7 +225,7 @@ func (p *PubsubEmitter) resubscribe() {
 	}()
 }
 
-func (p *PubsubEmitter) handleEvent(data interface{}) {
+func (p *Pubsub) handleEvent(data interface{}) {
 	switch t := data.(type) {
 	case redis.Message:
 		p.subsMu.Lock()
@@ -243,12 +243,12 @@ func (p *PubsubEmitter) handleEvent(data interface{}) {
 }
 
 // Errs implements Emitter.Errs
-func (p *PubsubEmitter) Errs() <-chan error {
+func (p *Pubsub) Errs() <-chan error {
 	return p.errs
 }
 
 // Subscribe implements Emitter.Subscribe
-func (p *PubsubEmitter) Subscribe(ev Event, l Listener) {
+func (p *Pubsub) Subscribe(ev Event, l Listener) {
 	p.subsMu.Lock()
 	count := p.subs[ev.Type()].Add(ev, l)
 	p.subsMu.Unlock()
@@ -266,7 +266,7 @@ func (p *PubsubEmitter) Subscribe(ev Event, l Listener) {
 }
 
 // Unsubscribe implements Emitter.Unsubscribe
-func (p *PubsubEmitter) Unsubscribe(ev Event, l Listener) {
+func (p *Pubsub) Unsubscribe(ev Event, l Listener) {
 	p.subsMu.Lock()
 	count := p.subs[ev.Type()].Remove(ev, l)
 	p.subsMu.Unlock()
@@ -284,6 +284,6 @@ func (p *PubsubEmitter) Unsubscribe(ev Event, l Listener) {
 }
 
 // Close implements Emitter.Close
-func (p *PubsubEmitter) Close() {
+func (p *Pubsub) Close() {
 	p.closer <- struct{}{}
 }

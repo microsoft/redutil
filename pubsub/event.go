@@ -10,7 +10,11 @@ import (
 type EventType int
 
 const (
+	// PlainEvent is the event type for events that are simple subscribed
+	// to in Redis without pattern matching.
 	PlainEvent EventType = iota + 1
+	// PatternEvent is the event type for events in Redis which will be
+	// subscribed to using patterns.
 	PatternEvent
 )
 
@@ -48,8 +52,7 @@ func (e EventType) UnsubCommand() string {
 	}
 }
 
-// Fields are concatenated into events which can
-// be listened to over liveloading.
+// Field is a type which is are concatenated into events, listed to over Redis.
 type Field struct {
 	valid   bool
 	alias   string
@@ -64,7 +67,7 @@ func (f Field) IsZero() bool { return !f.valid }
 // String returns the field value as a string.
 func (f Field) String() string { return f.value }
 
-// String returns the field value as a byte slice.
+// Bytes returns the field value as a byte slice.
 func (f Field) Bytes() []byte { return []byte(f.value) }
 
 // Int attempts to parse and return the field value as an integer.
@@ -177,7 +180,7 @@ func (e Event) Name() string {
 	return strings.Join(strs, "")
 }
 
-// Returns the type of the event.
+// Type returns the type of the event (either a PlainEvent or a PatternEvent).
 func (e Event) Type() EventType {
 	return e.kind
 }
@@ -219,7 +222,7 @@ func NewEvent(fields ...interface{}) Event {
 	return applyFields(Event{kind: PlainEvent}, fields)
 }
 
-// NewPatternEvent creates and returns a new event pattern off the series
+// NewPattern creates and returns a new event pattern off the series
 // of fields. This translates to a Redis PSUBSCRIBE call.
 func NewPattern(fields ...interface{}) Event {
 	return applyFields(Event{kind: PatternEvent}, fields)

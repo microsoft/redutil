@@ -29,7 +29,8 @@ func newReadPump(cnx redis.Conn) *readPump {
 
 // Work starts reading from the connection and blocks until it is closed.
 func (r *readPump) Work() {
-	cnx := redis.PubSubConn{r.cnx}
+	cnx := redis.PubSubConn{Conn: r.cnx}
+	defer close(r.closer)
 
 	for {
 		msg := cnx.Receive()
@@ -49,8 +50,6 @@ func (r *readPump) Work() {
 			}
 		}
 	}
-
-	close(r.closer)
 }
 
 // Errs returns a channel of errors from the connection
@@ -89,6 +88,8 @@ func newWritePump(cnx redis.Conn) *writePump {
 
 // Work starts writing to the connection and blocks until it is closed.
 func (r *writePump) Work() {
+	defer close(r.closer)
+
 	for {
 		select {
 		case data := <-r.data:
@@ -104,8 +105,6 @@ func (r *writePump) Work() {
 			return
 		}
 	}
-
-	close(r.closer)
 }
 
 // Errs returns a channel of errors from the connection
