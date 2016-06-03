@@ -39,13 +39,15 @@
 //   })
 package pubsub
 
-// The Listener contains function which, when passed to an Emitter, is invoked
-// when an event occurs. It's invoked with the corresponding subscribed
-// Event and the event's payload.
+// The Listener contains a function which, when passed to an Emitter, is
+// invoked when an event occurs. It's invoked with the corresponding
+// subscribed Event and the event's payload.
 //
 // Note that if a listener is subscribed to multiple overlapping events such
 // as `foo:bar` and `foo:*`, the listener will be called multiple times.
 type Listener interface {
+	// Handle is invoked when the event occurs, with
+	// the byte payload it contains.
 	Handle(e Event, b []byte)
 }
 
@@ -55,13 +57,13 @@ type Emitter interface {
 	// of the given Event. If the Listener is already subscribed to the
 	// event, it will be added again and the listener will be invoked
 	// multiple times when that event occurs.
-	Subscribe(e Event, l Listener)
+	Subscribe(e EventBuilder, l Listener)
 
 	// Unsubscribe unregisters a listener from an event. If the listener
 	// is not subscribed to the event, this will be a noop. Note that this
 	// only unsubscribes *one* listener from the event; if it's subscribed
 	// multiple times, it will need to unsubscribe multiple times.
-	Unsubscribe(e Event, l Listener)
+	Unsubscribe(e EventBuilder, l Listener)
 
 	// Errs returns a channel of errors that occur asynchronously on
 	// the Redis connection.

@@ -8,7 +8,7 @@ import (
 
 type record struct {
 	name string
-	ev   Event
+	ev   EventBuilder
 	list []Listener
 }
 
@@ -55,7 +55,7 @@ func (r *recordList) find(ev string) (index int, rec *record) {
 
 // Add inserts a new listener for an event. Returns the incremented
 // number of listeners.
-func (r *recordList) Add(ev Event, fn Listener) int {
+func (r *recordList) Add(ev EventBuilder, fn Listener) int {
 	idx, rec := r.find(ev.Name())
 	if idx == -1 {
 		r.list = append(r.list, &record{
@@ -72,7 +72,7 @@ func (r *recordList) Add(ev Event, fn Listener) int {
 
 // Remove delete the listener from the event. Returns the event's remaining
 // listeners.
-func (r *recordList) Remove(ev Event, fn Listener) int {
+func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 	idx, rec := r.find(ev.Name())
 	if idx == -1 {
 		return 0
@@ -231,14 +231,19 @@ func (p *Pubsub) handleEvent(data interface{}) {
 		p.subsMu.Lock()
 		rec := p.subs[PlainEvent].FindCopy(t.Channel)
 		p.subsMu.Unlock()
-		rec.Emit(rec.ev, t.Data)
+		rec.Emit(rec.ev.toEvent(t.Channel, t.Channel), t.Data)
 
 	case redis.PMessage:
 		p.subsMu.Lock()
 		rec := p.subs[PatternEvent].FindCopy(t.Pattern)
 		p.subsMu.Unlock()
-		rec.Emit(matchPatternAgainst(rec.ev, t.Channel), t.Data)
+		match, ok := matchPatternAgainst(rec.ev, t.Channel)
 
+		if !ok {
+			rec.Emit(rec.ev.toEvent(t.Channel, t.Pattern), t.Data)
+		} else {
+			rec.Emit(match.toEvent(t.Channel, t.Pattern), t.Data)
+		}
 	}
 }
 
@@ -248,15 +253,15 @@ func (p *Pubsub) Errs() <-chan error {
 }
 
 // Subscribe implements Emitter.Subscribe
-func (p *Pubsub) Subscribe(ev Event, l Listener) {
+func (p *Pubsub) Subscribe(ev EventBuilder, l Listener) {
 	p.subsMu.Lock()
-	count := p.subs[ev.Type()].Add(ev, l)
+	count := p.subs[ev.kind].Add(ev, l)
 	p.subsMu.Unlock()
 
 	if count == 1 {
 		written := make(chan struct{}, 1)
 		p.send <- command{
-			command: ev.Type().SubCommand(),
+			command: ev.kind.SubCommand(),
 			channel: ev.Name(),
 			written: written,
 		}
@@ -266,15 +271,15 @@ func (p *Pubsub) Subscribe(ev Event, l Listener) {
 }
 
 // Unsubscribe implements Emitter.Unsubscribe
-func (p *Pubsub) Unsubscribe(ev Event, l Listener) {
+func (p *Pubsub) Unsubscribe(ev EventBuilder, l Listener) {
 	p.subsMu.Lock()
-	count := p.subs[ev.Type()].Remove(ev, l)
+	count := p.subs[ev.kind].Remove(ev, l)
 	p.subsMu.Unlock()
 
 	if count == 0 {
 		written := make(chan struct{}, 1)
 		p.send <- command{
-			command: ev.Type().UnsubCommand(),
+			command: ev.kind.UnsubCommand(),
 			channel: ev.Name(),
 			written: written,
 		}

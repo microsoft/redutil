@@ -18,38 +18,42 @@ func TestEventTypes(t *testing.T) {
 
 func TestEventBuildsString(t *testing.T) {
 	e := NewEvent("foo")
-	assert.Equal(t, PlainEvent, e.Type())
+	assert.Equal(t, PlainEvent, e.kind)
 	assert.Equal(t, e.Name(), "foo")
 }
 
 func TestEventBuildsPattern(t *testing.T) {
 	e := NewPattern("foo")
-	assert.Equal(t, PatternEvent, e.Type())
+	assert.Equal(t, PatternEvent, e.kind)
 	assert.Equal(t, e.Name(), "foo")
 }
 
 func TestEventBuildsMultipart(t *testing.T) {
 	e := NewEvent("prefix:").String("foo:").Int(42)
 	assert.Equal(t, "prefix:foo:42", e.Name())
-	assert.Equal(t, 3, e.Len())
 
-	assert.Equal(t, "prefix:", e.Get(0).String())
-	id, _ := e.Get(2).Int()
-	assert.Equal(t, "foo:", e.Get(1).String())
+	b := e.toEvent("prefix:foo:42", "prefix:foo:42")
+	assert.Equal(t, 3, b.Len())
+
+	assert.Equal(t, "prefix:", b.Get(0).String())
+	id, _ := b.Get(2).Int()
+	assert.Equal(t, "foo:", b.Get(1).String())
 	assert.Equal(t, 42, id)
+	assert.Equal(t, "prefix:foo:42", b.Channel())
+	assert.Equal(t, "prefix:foo:42", b.Pattern())
 }
 
 func TestEventReturnsZeroOnDNE(t *testing.T) {
-	assert.True(t, NewEvent("foo").Get(1).IsZero())
-	assert.False(t, NewEvent("foo").Get(0).IsZero())
-	assert.True(t, NewEvent("foo").Int(1).As("bar").Find("bleh").IsZero())
-	assert.False(t, NewEvent("foo").Int(1).As("bar").Find("bar").IsZero())
+	assert.True(t, NewEvent("foo").toEvent("", "").Get(1).IsZero())
+	assert.False(t, NewEvent("foo").toEvent("", "").Get(0).IsZero())
+	assert.True(t, NewEvent("foo").Int(1).As("bar").toEvent("", "").Find("bleh").IsZero())
+	assert.False(t, NewEvent("foo").Int(1).As("bar").toEvent("", "").Find("bar").IsZero())
 }
 
 func TestEventMatchesPattern(t *testing.T) {
 	tt := []struct {
 		isMatch bool
-		event   Event
+		event   EventBuilder
 		channel string
 	}{
 		{true, NewPattern("foo"), "foo"},
@@ -70,8 +74,8 @@ func TestEventMatchesPattern(t *testing.T) {
 	}
 
 	for _, test := range tt {
-		actual := matchPatternAgainst(test.event, test.channel).Name()
-		matches := test.channel == actual
+		actual, _ := matchPatternAgainst(test.event, test.channel)
+		matches := test.channel == actual.Name()
 		if test.isMatch {
 			assert.True(t, matches, fmt.Sprintf("%s ∉ %s", test.channel, test.event.Name()))
 		} else {
@@ -86,13 +90,13 @@ func TestFuzz(t *testing.T) {
 	}
 
 	fields := []struct {
-		Transform func(e Event) Event
+		Transform func(e EventBuilder) EventBuilder
 		Matching  string
 	}{
-		{func(e Event) Event { return e.Star() }, "adsf"},
-		{func(e Event) Event { return e.String("foo") }, "foo"},
-		{func(e Event) Event { return e.String("bar") }, "bar"},
-		{func(e Event) Event { return e.Alternatives("123") }, "2"},
+		{func(e EventBuilder) EventBuilder { return e.Star() }, "adsf"},
+		{func(e EventBuilder) EventBuilder { return e.String("foo") }, "foo"},
+		{func(e EventBuilder) EventBuilder { return e.String("bar") }, "bar"},
+		{func(e EventBuilder) EventBuilder { return e.Alternatives("123") }, "2"},
 	}
 	// Transition matrix for fields, by index. Given an [x, y], field[y] has
 	// a matrix[x][y] chance of transitioning into field[x] next
@@ -125,7 +129,8 @@ func TestFuzz(t *testing.T) {
 			}
 		}
 
-		if matching != matchPatternAgainst(event, matching).Name() {
+		actual, _ := matchPatternAgainst(event, matching)
+		if matching != actual.Name() {
 			panic(fmt.Sprintf("%s ∉ %s", matching, event.Name()))
 		}
 

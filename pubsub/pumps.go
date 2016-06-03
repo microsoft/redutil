@@ -34,17 +34,16 @@ func (r *readPump) Work() {
 
 	for {
 		msg := cnx.Receive()
-		err, isErr := msg.(error)
 
-		if !isErr {
+		if err, isErr := msg.(error); isErr && shouldNotifyUser(err) {
 			select {
-			case r.data <- msg:
+			case r.errs <- err:
 			case <-r.closer:
 				return
 			}
-		} else if shouldNotifyUser(err) {
+		} else if !isErr {
 			select {
-			case r.errs <- err:
+			case r.data <- msg:
 			case <-r.closer:
 				return
 			}

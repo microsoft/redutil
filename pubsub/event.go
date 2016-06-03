@@ -12,7 +12,7 @@ type EventType int
 const (
 	// PlainEvent is the event type for events that are simple subscribed
 	// to in Redis without pattern matching.
-	PlainEvent EventType = iota + 1
+	PlainEvent EventType = iota
 	// PatternEvent is the event type for events in Redis which will be
 	// subscribed to using patterns.
 	PatternEvent
@@ -35,7 +35,7 @@ func (e EventType) SubCommand() string {
 	case PatternEvent:
 		return "PSUBSCRIBE"
 	default:
-		panic("unknown event type")
+		panic(fmt.Sprintf("redutil/pubsub: unknown event type %d", e))
 	}
 }
 
@@ -48,7 +48,7 @@ func (e EventType) UnsubCommand() string {
 	case PatternEvent:
 		return "PUNSUBSCRIBE"
 	default:
-		panic("unknown event type")
+		panic(fmt.Sprintf("redutil/pubsub: unknown event type %d", e))
 	}
 }
 
@@ -84,33 +84,33 @@ func (f Field) Int64() (int64, error) { return strconv.ParseInt(f.value, 10, 64)
 
 // An Event is passed to an Emitter to manage which
 // events a Listener is subscribed to.
-type Event struct {
+type EventBuilder struct {
 	fields []Field
 	kind   EventType
 }
 
 // As sets the alias of the last field in the event list. You may then call
 // Event.Find(alias) to look up the value of the field in the event.
-func (e Event) As(alias string) Event {
+func (e EventBuilder) As(alias string) EventBuilder {
 	e.fields[len(e.fields)-1].alias = alias
 	return e
 }
 
 // String creates a Field containing a string.
-func (e Event) String(str string) Event {
+func (e EventBuilder) String(str string) EventBuilder {
 	e.fields = append(e.fields, Field{valid: true, value: str})
 	return e
 }
 
 // Int creates a Field containing an integer.
-func (e Event) Int(x int) Event {
+func (e EventBuilder) Int(x int) EventBuilder {
 	e.fields = append(e.fields, Field{valid: true, value: strconv.Itoa(x)})
 	return e
 }
 
 // Star creates a Field containing the Kleene star `*` for pattern subscription,
-// and chains it on to the Event.
-func (e Event) Star() Event {
+// and chains it on to the EventBuilder.
+func (e EventBuilder) Star() EventBuilder {
 	e.assertPattern()
 	e.fields = append(e.fields, Field{valid: true, value: "*", pattern: patternStar})
 	return e
@@ -118,7 +118,7 @@ func (e Event) Star() Event {
 
 // Placeholder creates a field containing a `?` for a placeholder in Redis patterns,
 // and chains it on to the event.
-func (e Event) Placeholder() Event {
+func (e EventBuilder) Placeholder() EventBuilder {
 	e.assertPattern()
 	e.fields = append(e.fields, Field{valid: true, value: "?", pattern: patternPlaceholder})
 	return e
@@ -126,7 +126,7 @@ func (e Event) Placeholder() Event {
 
 // Alternatives creates a field with the alts wrapped in brackets, to match
 // one of them in a Redis pattern, and chains it on to the event.
-func (e Event) Alternatives(alts string) Event {
+func (e EventBuilder) Alternatives(alts string) EventBuilder {
 	e.assertPattern()
 	e.fields = append(e.fields, Field{
 		valid:   true,
@@ -137,11 +137,89 @@ func (e Event) Alternatives(alts string) Event {
 }
 
 // assertPattern panics if the event is not a Pattern type.
-func (e Event) assertPattern() {
+func (e EventBuilder) assertPattern() {
 	if e.kind != PatternEvent {
 		panic("That operation is only valid on pattern events created with NewPattern()")
 	}
 }
+
+// Name returns name of the event, formed by a concatenation of all the
+// event fields.
+func (e EventBuilder) Name() string {
+	strs := make([]string, len(e.fields))
+	for i, field := range e.fields {
+		strs[i] = field.value
+	}
+
+	return strings.Join(strs, "")
+}
+
+func (e EventBuilder) toEvent(channel, pattern string) Event {
+	return Event{
+		fields:  e.fields,
+		kind:    e.kind,
+		channel: channel,
+		pattern: pattern,
+	}
+}
+
+func (e EventBuilder) concat(other EventBuilder) EventBuilder {
+	e.fields = append(e.fields, other.fields...)
+	return e
+}
+
+func (e EventBuilder) slice(start, end int) EventBuilder {
+	e.fields = e.fields[start:end]
+	return e
+}
+
+// applyFields attempts to convert the values from a string or byte slice into
+// a Field. It panics if a value is none of the above.
+func applyFields(event EventBuilder, values []interface{}) EventBuilder {
+	for _, v := range values {
+		switch t := v.(type) {
+		case string:
+			event = event.String(t)
+		case []byte:
+			event = event.String(string(t))
+		default:
+			panic(fmt.Sprintf("Expected string or field when creating an event, got %T", v))
+		}
+	}
+
+	return event
+}
+
+// NewEvent creates and returns a new event based off the series of fields.
+// This translates to a Redis SUBSCRIBE call.
+func NewEvent(fields ...interface{}) EventBuilder {
+	return applyFields(EventBuilder{kind: PlainEvent}, fields)
+}
+
+// NewPattern creates and returns a new event pattern off the series
+// of fields. This translates to a Redis PSUBSCRIBE call.
+func NewPattern(fields ...interface{}) EventBuilder {
+	return applyFields(EventBuilder{kind: PatternEvent}, fields)
+}
+
+// An Event is passed down to a Listener's Handle function.
+type Event struct {
+	channel, pattern string
+	fields           []Field
+	kind             EventType
+}
+
+// Type returns the type of the event (either a PlainEvent or a PatternEvent).
+func (e Event) Type() EventType { return e.kind }
+
+// Channel returns a the channel that the event was sent down. For plain
+// events, this is equivalent to event names. For pattern events, this is
+// the fulfilled name of the event.
+func (e Event) Channel() string { return e.channel }
+
+// Pattern returns the pattern which was originally used to subscribe to
+// this event. For plain events, this will simply be the event name.
+func (e Event) Pattern() string { return e.channel }
 
 // Len returns the number of fields contained in the event.
 func (e Event) Len() int { return len(e.fields) }
@@ -169,77 +247,18 @@ func (e Event) Find(alias string) Field {
 	return Field{valid: false}
 }
 
-// Name returns name of the event, formed by a concatenation of all the
-// event fields.
-func (e Event) Name() string {
-	strs := make([]string, len(e.fields))
-	for i, field := range e.fields {
-		strs[i] = field.value
-	}
-
-	return strings.Join(strs, "")
-}
-
-// Type returns the type of the event (either a PlainEvent or a PatternEvent).
-func (e Event) Type() EventType {
-	return e.kind
-}
-
-func (e Event) concat(other Event) Event {
-	e.fields = append(e.fields, other.fields...)
-	return e
-}
-
-func (e Event) slice(start, end int) Event {
-	e.fields = e.fields[start:end]
-	return e
-}
-
-func (e Event) isZero() bool {
-	return e.kind == 0
-}
-
-// applyFields attempts to convert the values from a string or byte slice into
-// a Field. It panics if a value is none of the above.
-func applyFields(event Event, values []interface{}) Event {
-	for _, v := range values {
-		switch t := v.(type) {
-		case string:
-			event = event.String(t)
-		case []byte:
-			event = event.String(string(t))
-		default:
-			panic(fmt.Sprintf("Expected string or field when creating an event, got %T", v))
-		}
-	}
-
-	return event
-}
-
-// NewEvent creates and returns a new event based off the series of fields.
-// This translates to a Redis SUBSCRIBE call.
-func NewEvent(fields ...interface{}) Event {
-	return applyFields(Event{kind: PlainEvent}, fields)
-}
-
-// NewPattern creates and returns a new event pattern off the series
-// of fields. This translates to a Redis PSUBSCRIBE call.
-func NewPattern(fields ...interface{}) Event {
-	return applyFields(Event{kind: PatternEvent}, fields)
-}
-
 // Matches the special characters of an event against a specific channel,
 // returning a new event that has the ambiguities (*, ?, [xy]) resolved.
 // It returns a zero event if it cannot match the string.
 //
 // This is partly based on Redis' own matching from:
 // https://github.com/antirez/redis/blob/unstable/src/util.c#L47
-func matchPatternAgainst(ev Event, channel string) Event {
+func matchPatternAgainst(ev EventBuilder, channel string) (EventBuilder, bool) {
 	if ev.kind != PatternEvent {
 		panic("pattern matching is only valid against pattern events")
 	}
 
-	out := Event{
+	out := EventBuilder{
 		fields: make([]Field, 0, len(ev.fields)),
 		kind:   PatternEvent,
 	}
@@ -255,13 +274,13 @@ func matchPatternAgainst(ev Event, channel string) Event {
 		// contain one of the alternatives.
 		if field.pattern == patternAlts && pos < chlen &&
 			strings.IndexByte(field.value[1:vallen-1], channel[pos]) == -1 {
-			return Event{}
+			return EventBuilder{}, false
 		}
 
 		// Swap out placeholders or alts for the next character, if there is one.
 		if field.pattern == patternPlaceholder || field.pattern == patternAlts {
 			if pos == chlen {
-				return Event{}
+				return EventBuilder{}, false
 			}
 			out = out.String(string(channel[pos]))
 			pos++
@@ -273,7 +292,7 @@ func matchPatternAgainst(ev Event, channel string) Event {
 			// If this is the last component, eat the rest of the channel.
 			if i == num-1 {
 				out = out.String(channel[pos:])
-				return out
+				return out, true
 			}
 
 			// Start eating up the pattern until we get to a point where
@@ -282,26 +301,25 @@ func matchPatternAgainst(ev Event, channel string) Event {
 			// else on the end.
 			tail := ev.slice(i+1, num)
 			for end := pos; end < chlen; end++ {
-				tail := matchPatternAgainst(tail, channel[end:])
-				if !tail.isZero() {
+				if tail, ok := matchPatternAgainst(tail, channel[end:]); ok {
 					out = out.String(channel[pos:end])
-					return out.slice(0, i+1).concat(tail)
+					return out.slice(0, i+1).concat(tail), true
 				}
 			}
 
 			// Can't find anything? This is invalid.
-			return Event{}
+			return EventBuilder{}, false
 		}
 
 		// Otherwise it's a plain text match. Make sure it actually matches,
 		// then add it on.
 		if vallen+pos > chlen || channel[pos:pos+vallen] != field.value {
-			return Event{}
+			return EventBuilder{}, false
 		}
 
 		out.fields = append(out.fields, field)
 		pos += vallen
 	}
 
-	return out
+	return out, true
 }
