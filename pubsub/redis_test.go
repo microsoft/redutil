@@ -148,7 +148,7 @@ func (r *RedisPubsubSuite) TestBasicReception() {
 	ev := NewEvent("foo")
 	body := []byte("bar")
 	r.emitter.Subscribe(ev, l)
-	l.On("Handle", ev.toEvent("foo", "foo"), body).Return()
+	l.On("Handle", ev.ToEvent("foo", "foo"), body).Return()
 	r.MustDo("PUBLISH", "foo", body)
 	l.waitForCall()
 }
@@ -166,9 +166,9 @@ func (r *RedisPubsubSuite) TestCallsMultipleListeners() {
 	body1 := []byte("bar1")
 	body2 := []byte("bar2")
 	body3 := []byte("bar3")
-	l1.On("Handle", ev.toEvent("foo", "foo"), body1).Return()
-	l2.On("Handle", ev.toEvent("foo", "foo"), body1).Return()
-	l2.On("Handle", ev.toEvent("foo", "foo"), body2).Return()
+	l1.On("Handle", ev.ToEvent("foo", "foo"), body1).Return()
+	l2.On("Handle", ev.ToEvent("foo", "foo"), body1).Return()
+	l2.On("Handle", ev.ToEvent("foo", "foo"), body2).Return()
 
 	r.emitter.Subscribe(ev, l1)
 	r.emitter.Subscribe(ev, l2)
@@ -195,7 +195,7 @@ func (r *RedisPubsubSuite) TestsCallsWithFancyPatterns() {
 
 	ev := NewPattern("foo:").Int(42).String(":bar")
 	body1 := []byte("bar1")
-	l1.On("Handle", ev.toEvent("foo:42:bar", "foo:*:bar"), body1).Return()
+	l1.On("Handle", ev.ToEvent("foo:42:bar", "foo:*:bar"), body1).Return()
 	r.emitter.Subscribe(NewPattern().String("foo:").Star().String(":bar"), l1)
 
 	r.MustDo("PUBLISH", "foo:42:bar", body1)
@@ -221,7 +221,7 @@ func (r *RedisPubsubSuite) TestResubscribesWhenDies() {
 	}
 
 	r.waitForSubscribers("foo", 1)
-	l.On("Handle", ev.toEvent("foo", "foo"), body).Return()
+	l.On("Handle", ev.ToEvent("foo", "foo"), body).Return()
 	r.MustDo("PUBLISH", "foo", body)
 	l.waitForCall()
 }

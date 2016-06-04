@@ -231,7 +231,7 @@ func (p *Pubsub) handleEvent(data interface{}) {
 		p.subsMu.Lock()
 		rec := p.subs[PlainEvent].FindCopy(t.Channel)
 		p.subsMu.Unlock()
-		rec.Emit(rec.ev.toEvent(t.Channel, t.Channel), t.Data)
+		rec.Emit(rec.ev.ToEvent(t.Channel, t.Channel), t.Data)
 
 	case redis.PMessage:
 		p.subsMu.Lock()
@@ -240,9 +240,9 @@ func (p *Pubsub) handleEvent(data interface{}) {
 		match, ok := matchPatternAgainst(rec.ev, t.Channel)
 
 		if !ok {
-			rec.Emit(rec.ev.toEvent(t.Channel, t.Pattern), t.Data)
+			rec.Emit(rec.ev.ToEvent(t.Channel, t.Pattern), t.Data)
 		} else {
-			rec.Emit(match.toEvent(t.Channel, t.Pattern), t.Data)
+			rec.Emit(match.ToEvent(t.Channel, t.Pattern), t.Data)
 		}
 	}
 }

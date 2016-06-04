@@ -32,7 +32,7 @@ func TestEventBuildsMultipart(t *testing.T) {
 	e := NewEvent("prefix:").String("foo:").Int(42)
 	assert.Equal(t, "prefix:foo:42", e.Name())
 
-	b := e.toEvent("prefix:foo:42", "prefix:foo:42")
+	b := e.ToEvent("prefix:foo:42", "prefix:foo:42")
 	assert.Equal(t, 3, b.Len())
 
 	assert.Equal(t, "prefix:", b.Get(0).String())
@@ -44,10 +44,10 @@ func TestEventBuildsMultipart(t *testing.T) {
 }
 
 func TestEventReturnsZeroOnDNE(t *testing.T) {
-	assert.True(t, NewEvent("foo").toEvent("", "").Get(1).IsZero())
-	assert.False(t, NewEvent("foo").toEvent("", "").Get(0).IsZero())
-	assert.True(t, NewEvent("foo").Int(1).As("bar").toEvent("", "").Find("bleh").IsZero())
-	assert.False(t, NewEvent("foo").Int(1).As("bar").toEvent("", "").Find("bar").IsZero())
+	assert.True(t, NewEvent("foo").ToEvent("", "").Get(1).IsZero())
+	assert.False(t, NewEvent("foo").ToEvent("", "").Get(0).IsZero())
+	assert.True(t, NewEvent("foo").Int(1).As("bar").ToEvent("", "").Find("bleh").IsZero())
+	assert.False(t, NewEvent("foo").Int(1).As("bar").ToEvent("", "").Find("bar").IsZero())
 }
 
 func TestEventMatchesPattern(t *testing.T) {

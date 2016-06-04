@@ -154,9 +154,15 @@ func (e EventBuilder) Name() string {
 	return strings.Join(strs, "")
 }
 
-func (e EventBuilder) toEvent(channel, pattern string) Event {
+// ToEvent converts an EventBuilder into an immutable event which appears
+// to have been send down the provided channel and pattern. This is primarily
+// used internally but may also be useful for unit testing.
+func (e EventBuilder) ToEvent(channel, pattern string) Event {
+	fields := make([]Field, len(e.fields))
+	copy(fields, e.fields)
+
 	return Event{
-		fields:  e.fields,
+		fields:  fields,
 		kind:    e.kind,
 		channel: channel,
 		pattern: pattern,
