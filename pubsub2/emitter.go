@@ -51,12 +51,10 @@ type Listener interface {
 	Handle(e Event, b []byte)
 }
 
-type listenerFunc struct{ handle func(e Event, b []byte) }
+// ListenerFunc is a Listener implementation which invokes itself when Handle is called.
+type ListenerFunc func(e Event, b []byte)
 
-func (l listenerFunc) Handle(e Event, b []byte) { l.handle(e, b) }
-
-// ListenerFunc creates a Listener which invokes the provided function.
-func ListenerFunc(fn func(e Event, b []byte)) Listener { return &listenerFunc{fn} }
+func (l ListenerFunc) Handle(e Event, b []byte) { l(e, b) }
 
 // Emitter is the primary interface to interact with pubsub.
 type Emitter interface {
