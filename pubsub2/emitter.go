@@ -51,6 +51,11 @@ type Listener interface {
 	Handle(e Event, b []byte)
 }
 
+// ListenerFunc is a Listener implementation which invokes itself when Handle is called.
+type ListenerFunc func(e Event, b []byte)
+
+func (l ListenerFunc) Handle(e Event, b []byte) { l(e, b) }
+
 // Emitter is the primary interface to interact with pubsub.
 type Emitter interface {
 	// Subscribe registers that the provided lister wants to be notified
