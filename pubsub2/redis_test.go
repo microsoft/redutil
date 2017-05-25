@@ -7,8 +7,8 @@ import (
 	"github.com/garyburd/redigo/redis"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/WatchBeam/redutil/conn"
-	"github.com/WatchBeam/redutil/test"
+	"github.com/mixer/redutil/conn"
+	"github.com/mixer/redutil/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 )

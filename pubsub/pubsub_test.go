@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/WatchBeam/redutil/conn"
 	"github.com/garyburd/redigo/redis"
+	"github.com/mixer/redutil/conn"
 	"github.com/stretchr/testify/assert"
 )
 

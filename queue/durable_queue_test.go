@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/WatchBeam/redutil/conn"
-	"github.com/WatchBeam/redutil/queue"
-	"github.com/WatchBeam/redutil/test"
+	"github.com/mixer/redutil/conn"
+	"github.com/mixer/redutil/queue"
+	"github.com/mixer/redutil/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 )

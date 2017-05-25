@@ -36,9 +36,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/WatchBeam/fsm"
-	"github.com/WatchBeam/redutil/conn"
 	"github.com/garyburd/redigo/redis"
+	"github.com/mixer/fsm"
+	"github.com/mixer/redutil/conn"
 )
 
 // Used to denote the type of listener - channel or pattern.

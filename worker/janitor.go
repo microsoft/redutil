@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/WatchBeam/redutil/heartbeat"
-	"github.com/WatchBeam/redutil/queue"
 	"github.com/benbjohnson/clock"
 	"github.com/garyburd/redigo/redis"
 	"github.com/hjr265/redsync.go/redsync"
+	"github.com/mixer/redutil/heartbeat"
+	"github.com/mixer/redutil/queue"
 )
 
 // The Janitor is used to assist in the tear down of dead workers. It can

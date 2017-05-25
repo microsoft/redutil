@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/WatchBeam/redutil/queue"
 	"github.com/garyburd/redigo/redis"
+	"github.com/mixer/redutil/queue"
 )
 
 // ErrNotFound is returned if you attempt to mark a task as complete or abandoned

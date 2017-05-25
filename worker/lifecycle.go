@@ -1,7 +1,7 @@
 package worker
 
 import (
-	"github.com/WatchBeam/redutil/queue"
+	"github.com/mixer/redutil/queue"
 )
 
 type Lifecycle interface {

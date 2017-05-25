@@ -1,7 +1,7 @@
 package pubsub
 
 import (
-	"github.com/WatchBeam/fsm"
+	"github.com/mixer/fsm"
 )
 
 const (

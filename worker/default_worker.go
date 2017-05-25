@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/WatchBeam/redutil/heartbeat"
-	"github.com/WatchBeam/redutil/queue"
 	"github.com/garyburd/redigo/redis"
+	"github.com/mixer/redutil/heartbeat"
+	"github.com/mixer/redutil/queue"
 )
 
 // Internal state tracking used in the worker.

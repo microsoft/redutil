@@ -1,4 +1,4 @@
-# redutil [![Build Status](https://travis-ci.org/WatchBeam/redutil.svg?branch=master)](https://travis-ci.org/WatchBeam/redutil) [![Coverage Status](https://coveralls.io/repos/MCProHosting/redutil/badge.svg?branch=master)](https://coveralls.io/r/MCProHosting/redutil?branch=master) [![godoc reference](https://godoc.org/github.com/WatchBeam/redutil?status.png)](https://godoc.org/github.com/WatchBeam/redutil)
+# redutil [![Build Status](https://travis-ci.org/mixer/redutil.svg?branch=master)](https://travis-ci.org/mixer/redutil) [![Coverage Status](https://coveralls.io/repos/MCProHosting/redutil/badge.svg?branch=master)](https://coveralls.io/r/MCProHosting/redutil?branch=master) [![godoc reference](https://godoc.org/github.com/mixer/redutil?status.png)](https://godoc.org/github.com/mixer/redutil)
 
 
 This package consists of several utilities to make Redis easier and more consistent in Go.
@@ -14,8 +14,8 @@ package main
 
 import (
     "time"
-    "gopkg.in/WatchBeam/redutil.v2/conn"
-    "gopkg.in/WatchBeam/redutil.v2/pubsub"
+    "gopkg.in/mixer/redutil.v2/conn"
+    "gopkg.in/mixer/redutil.v2/pubsub"
 )
 
 func main() {

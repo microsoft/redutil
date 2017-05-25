@@ -1,8 +1,8 @@
 package worker_test
 
 import (
-	"github.com/WatchBeam/redutil/queue"
-	"github.com/WatchBeam/redutil/worker"
+	"github.com/mixer/redutil/queue"
+	"github.com/mixer/redutil/worker"
 	"github.com/stretchr/testify/mock"
 )
 
