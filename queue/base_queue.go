@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sirupsen/logrus"
 	"github.com/garyburd/redigo/redis"
 )
 
@@ -87,6 +88,8 @@ func (q *BaseQueue) Concat(src string) (moved int, err error) {
 	cnx := q.pool.Get()
 	defer cnx.Close()
 
+	logrus.Info("concat %s => %s", src, q.Source())
+
 	errCount := 0
 	for {
 		err = q.Processor().Concat(cnx, src, q.Source())
@@ -98,12 +101,14 @@ func (q *BaseQueue) Concat(src string) (moved int, err error) {
 
 		// ErrNil is returned when there are no more items to concat
 		if err == redis.ErrNil {
+			logrus.Infof("moved %d items from %s => %s", moved, src, q.Source())
 			return
 		}
 
 		// Command error are bad; something is wrong in db and we should
 		// return the problem to the caller.
 		if _, cmdErr := err.(redis.Error); cmdErr {
+			logrus.Infof("command err moving items from %s => %s: %s", src, q.Source(), err)
 			return
 		}
 
@@ -111,6 +116,7 @@ func (q *BaseQueue) Concat(src string) (moved int, err error) {
 		// the old connection and try getting a new one.
 		errCount++
 		if errCount >= concatRetries {
+			logrus.Infof("failed moving items from %s => %s: %s", src, q.Source(), err)
 			return
 		}
 
