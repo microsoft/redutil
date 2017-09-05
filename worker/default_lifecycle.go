@@ -24,6 +24,32 @@ var ErrNotFound = errors.New("Attempted to complete a task that we aren't workin
 var deleteToken = []byte{0x16, 0xea, 0x58, 0x1f, 0xbd, 0x4a, 0x23, 0xc2,
 	0x66, 0x97, 0x8a, 0x35, 0xb7, 0xd0, 0x22, 0xef}
 
+var (
+	// errIndexOutOfRange is the error message that Redis returns on an LSET if the
+	// list index is out of range. We use this to detect if the representation of
+	// the list we keep in memory is possibly corrupted.
+	errIndexOutOfRange = "ERR index out of range"
+	// errNoSuchKey is the error message that Redis returns on an LSET if the
+	// key isn't found. We use this to detect if the representation of
+	// the list we keep in memory is possibly corrupted.
+	errNoSuchKey = "ERR no such key"
+)
+
+// restoreScript is called in restoreList to set the list contents. Generally
+// we know that the list we keep in memory is correct, EXCEPT for possibly the
+// last item in the queue which could have been pulled onto it while the
+// store is running.
+var restoreScript = redis.NewScript(1, `
+local last_item = redis.call('lpop', KEYS[1])
+redis.call('del', KEYS[1])
+redis.call('lpush', KEYS[1], unpack(ARGV))
+if last_item and ARGV[#ARGV] ~= last_item then
+	redis.call('lpush', KEYS[1], last_item)
+	return 1
+end
+return 0
+`)
+
 // DefaultLifecycle provides a default implementation of the Lifecycle
 // interface. It moves tasks from a source, which provides available tasks, into
 // a specific worker queue, which is the list of items that this worker is
@@ -189,21 +215,29 @@ func (l *DefaultLifecycle) removeTask(task *Task) (err error) {
 	cnx := l.pool.Get()
 	defer cnx.Close()
 
+	return l.removeTaskWhileLocked(cnx, task, false)
+}
+
+func (l *DefaultLifecycle) removeTaskWhileLocked(cnx redis.Conn, task *Task, didRetry bool) (err error) {
 	i := l.findTaskIndex(task)
 	if i == -1 {
 		return ErrNotFound
 	}
 
 	count := len(l.registry)
-	l.registry = append(l.registry[:i], l.registry[i+1:]...)
 
 	// We set the item relative to the end position of the list. Since the
 	// queue is running BRPOPLPUSH, the index relative to the start of the
 	// list (left side) might change in the meantime.
 	_, err = cnx.Do("LSET", l.workingTasks.Dest(), i-count, deleteToken)
 	if err != nil {
-		return
+		if !didRetry && l.isErrCorruptedQueue(err) {
+			return l.restoreList(cnx, task)
+		}
+		return err
 	}
+
+	l.registry = append(l.registry[:i], l.registry[i+1:]...)
 
 	// Ignore errors from trimming. If this fails, it's unfortunate, but the
 	// task was still removed successfully. The next LTRIM will remove the
@@ -212,6 +246,42 @@ func (l *DefaultLifecycle) removeTask(task *Task) (err error) {
 
 	l.wg.Done()
 	return nil
+}
+
+// restoreList is called when an index out of range error is returned in
+// removeTask. It pulls data from Redis and retries calling removeTaskWhileLocked.
+func (l *DefaultLifecycle) restoreList(cnx redis.Conn, task *Task) error {
+	bytes := make([]interface{}, len(l.registry)+1)
+	bytes[0] = l.workingTasks.Dest()
+	for i, item := range l.registry {
+		bytes[len(bytes)-i-1] = item
+	}
+
+	_, err := restoreScript.Do(cnx, bytes...)
+	if err != nil {
+		return err
+	}
+
+	return l.removeTaskWhileLocked(cnx, task, true)
+}
+
+// isErrCorruptedQueue returned true if the given error is a Redis error that
+// indicates that our in-memory queue is corrupted.
+func (l *DefaultLifecycle) isErrCorruptedQueue(err error) bool {
+	rerr, ok := err.(redis.Error)
+	if !ok {
+		return false
+	}
+
+	if string(rerr) == errIndexOutOfRange {
+		return true
+	}
+
+	if string(rerr) == errNoSuchKey {
+		return true
+	}
+
+	return false
 }
 
 // Returns the index of the task in the tasks list. Returns -1 if the task

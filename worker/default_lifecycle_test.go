@@ -124,6 +124,42 @@ func (suite *DefaultLifecycleSuite) TestAbandonAllMovesAllTasksToMainQueue() {
 	suite.Assert().Equal(3, suite.RedisLength("queue"))
 }
 
+func (suite *DefaultLifecycleSuite) TestRestoresStateIfListCorrupted() {
+	l := suite.makeLifecycle("queue", "worker_1")
+	queue := queue.NewByteQueue(suite.Pool, "queue")
+	tasks, _ := l.Listen()
+	defer func() {
+		l.AbandonAll()
+	}()
+
+	queue.Push([]byte("task1"))
+	queue.Push([]byte("task2"))
+	queue.Push([]byte("task3"))
+
+	<-tasks
+	<-tasks
+	task1 := <-tasks
+
+	suite.WithRedis(func(conn redis.Conn) {
+		_, err := conn.Do("DEL", "worker_1")
+		suite.Nil(err)
+
+		// Should "keep" items pushed on after failure.
+		queue.Push([]byte("task4"))
+		<-tasks
+
+		// succeed should work fine here
+		suite.Nil(task1.Succeed())
+
+		// it should have seen the queue was bad and should have restored the
+		// missing tasks.
+		items, _ := redis.Strings(conn.Do("LRANGE", "worker_1", 0, -1))
+		suite.Equal([]string{"task4", "task2", "task1"}, items)
+	})
+
+	l.StopListening()
+}
+
 func (suite *DefaultLifecycleSuite) RedisLength(keyspace string) int {
 	cnx := suite.Pool.Get()
 	defer cnx.Close()
