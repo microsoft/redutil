@@ -81,7 +81,7 @@ func TestRecordsRemoves(t *testing.T) {
 
 func TestRecordFindCopyGetsEmptyByDefault(t *testing.T) {
 	recs := (&recordList{}).FindCopy("foo")
-	assert.Len(t, recs.list, 0)
+	assert.Nil(t, recs)
 }
 
 func TestRecordsGetCopies(t *testing.T) {

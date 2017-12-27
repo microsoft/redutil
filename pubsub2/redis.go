@@ -23,11 +23,11 @@ type recordList struct{ list []*record }
 
 // FindCopy looks up an record in the list by the event name and returns
 // a copy of it. This is done so that the copy may be used without needing
-// to maintain the lock on the record list.
+// to maintain the lock on the record list. Returns nil if a match is not found.
 func (r *recordList) FindCopy(ev string) *record {
 	_, rec := r.find(ev)
 	if rec == nil {
-		return &record{}
+		return nil
 	}
 
 	dup := &record{
@@ -231,14 +231,21 @@ func (p *Pubsub) handleEvent(data interface{}) {
 		p.subsMu.Lock()
 		rec := p.subs[PlainEvent].FindCopy(t.Channel)
 		p.subsMu.Unlock()
+		if rec == nil {
+			return
+		}
+
 		rec.Emit(rec.ev.ToEvent(t.Channel, t.Channel), t.Data)
 
 	case redis.PMessage:
 		p.subsMu.Lock()
 		rec := p.subs[PatternEvent].FindCopy(t.Pattern)
 		p.subsMu.Unlock()
-		match, ok := matchPatternAgainst(rec.ev, t.Channel)
+		if rec == nil {
+			return
+		}
 
+		match, ok := matchPatternAgainst(rec.ev, t.Channel)
 		if !ok {
 			rec.Emit(rec.ev.ToEvent(t.Channel, t.Pattern), t.Data)
 		} else {
