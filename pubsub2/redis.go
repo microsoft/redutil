@@ -228,7 +228,9 @@ func (p *Pubsub) resubscribe() {
 func (p *Pubsub) handleEvent(data interface{}) {
 	switch t := data.(type) {
 	case redis.Message:
+		p.subsMu.Lock()
 		_, rec := p.subs[PlainEvent].Find(t.Channel)
+		p.subsMu.Unlock()
 		if rec == nil {
 			return
 		}
@@ -236,7 +238,9 @@ func (p *Pubsub) handleEvent(data interface{}) {
 		rec.Emit(rec.ev.ToEvent(t.Channel, t.Channel), t.Data)
 
 	case redis.PMessage:
+		p.subsMu.Lock()
 		_, rec := p.subs[PatternEvent].Find(t.Pattern)
+		p.subsMu.Unlock()
 		if rec == nil {
 			return
 		}
