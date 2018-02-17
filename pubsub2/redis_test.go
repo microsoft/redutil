@@ -46,6 +46,12 @@ func newTestRecordList() (recs *recordList, l1 Listener, l2 Listener) {
 	return recs, l1, l2
 }
 
+func assertListenersEqual(t *testing.T, r *record, event EventBuilder, name string, listeners []Listener) {
+	assert.Equal(t, r.ev, event)
+	assert.Equal(t, r.name, name)
+	assert.Equal(t, r.getList(), listeners)
+}
+
 func TestRecordsAddListeners(t *testing.T) {
 	list := &recordList{}
 	ev := NewEvent("foo")
@@ -56,40 +62,48 @@ func TestRecordsAddListeners(t *testing.T) {
 	list.Add(ev, l1)
 
 	assert.Len(t, list.list, 1)
-	assert.Equal(t,
-		record{ev: ev, name: "foo", list: []Listener{l1}},
-		*list.list[0],
-	)
+	assertListenersEqual(t, list.list[0], ev, "foo", []Listener{l1})
 
 	list.Add(ev, l2)
 
 	assert.Len(t, list.list, 1)
-	assert.Equal(t,
-		record{ev: ev, name: "foo", list: []Listener{l1, l2}},
-		*list.list[0],
-	)
+	assertListenersEqual(t, list.list[0], ev, "foo", []Listener{l1, l2})
 }
 
 func TestRecordsRemoves(t *testing.T) {
 	recs, l1, l2 := newTestRecordList()
-	assert.Len(t, recs.list[0].list, 2)
+	ev := NewEvent("foo")
+	assertListenersEqual(t, recs.list[0], ev, "foo", []Listener{l1, l2})
 	recs.Remove(NewEvent("foo"), l2)
-	assert.Len(t, recs.list[0].list, 1)
+	assertListenersEqual(t, recs.list[0], ev, "foo", []Listener{l1})
 	recs.Remove(NewEvent("foo"), l1)
 	assert.Len(t, recs.list, 0)
 }
 
 func TestRecordFindCopyGetsEmptyByDefault(t *testing.T) {
-	recs := (&recordList{}).FindCopy("foo")
+	i, recs := (&recordList{}).Find("foo")
+	assert.Equal(t, -1, i)
 	assert.Nil(t, recs)
 }
 
 func TestRecordsGetCopies(t *testing.T) {
-	recs, _, _ := newTestRecordList()
-	out := recs.FindCopy("foo")
-	assert.Len(t, out.list, 2)
-	recs.list[0].list = nil
-	assert.Len(t, out.list, 2)
+	recs, l1, l2 := newTestRecordList()
+	ev := NewEvent("foo")
+	_, out := recs.Find("foo")
+	l3 := newMockListener()
+
+	originalList := out.getList()
+	assert.Equal(t, originalList, []Listener{l1, l2})
+	recs.Add(ev, l3)
+	assert.Equal(t, originalList, []Listener{l1, l2})
+
+	updatedList := out.getList()
+	assert.Equal(t, updatedList, []Listener{l1, l2, l3})
+	recs.Remove(ev, l1)
+	recs.Remove(ev, l2)
+	assert.Equal(t, updatedList, []Listener{l1, l2, l3})
+	assert.Equal(t, originalList, []Listener{l1, l2})
+	assert.Equal(t, out.getList(), []Listener{l3})
 }
 
 type RedisPubsubSuite struct {
