@@ -49,7 +49,7 @@ func (l *lifoProcessor) Pull(cnx redis.Conn, src string,
 func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string,
 	_ time.Duration) ([]byte, error) {
 
-	bytes, err := redis.Bytes(LPOPRPUSH(cnx).Do(cnx, src, dest))
+	bytes, err := redis.Bytes(LPOPRPUSH.Do(cnx, src, dest))
 	if err != nil {
 		return nil, err
 	}

@@ -2,8 +2,7 @@ language: go
 services:
   - redis-server
 go:
-  - 1.5
-  - 1.6
-  - tip
+  - "1.9"
+  - "1.10"
 notifications:
   email: false
