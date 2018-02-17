@@ -3,47 +3,34 @@ package pubsub
 import (
 	"sync"
 
+	"unsafe"
+
+	"sync/atomic"
+
 	"github.com/garyburd/redigo/redis"
 )
 
 type record struct {
 	name string
 	ev   EventBuilder
-	list []Listener
+	list unsafe.Pointer // to a []Listener
 }
 
 // Emit invokes all attached listeners with the provided event.
 func (r *record) Emit(ev Event, b []byte) {
-	for _, l := range r.list {
+	for _, l := range r.getList() {
 		l.Handle(ev, b)
 	}
 }
 
+func (r *record) setList(l []Listener) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
+func (r *record) getList() []Listener  { return *(*[]Listener)(atomic.LoadPointer(&r.list)) }
+
 type recordList struct{ list []*record }
 
-// FindCopy looks up an record in the list by the event name and returns
-// a copy of it. This is done so that the copy may be used without needing
-// to maintain the lock on the record list. Returns nil if a match is not found.
-func (r *recordList) FindCopy(ev string) *record {
-	_, rec := r.find(ev)
-	if rec == nil {
-		return nil
-	}
-
-	dup := &record{
-		ev:   rec.ev,
-		name: rec.name,
-		list: make([]Listener, len(rec.list)),
-	}
-
-	copy(dup.list, rec.list)
-
-	return dup
-}
-
-// findIndex looks up the index for the record corresponding to the provided
+// Find looks up the index for the record corresponding to the provided
 // event name. It returns -1 if one was not found.
-func (r *recordList) find(ev string) (index int, rec *record) {
+func (r *recordList) Find(ev string) (index int, rec *record) {
 	for i, rec := range r.list {
 		if rec.name == ev {
 			return i, rec
@@ -56,47 +43,60 @@ func (r *recordList) find(ev string) (index int, rec *record) {
 // Add inserts a new listener for an event. Returns the incremented
 // number of listeners.
 func (r *recordList) Add(ev EventBuilder, fn Listener) int {
-	idx, rec := r.find(ev.Name())
+	idx, rec := r.Find(ev.Name())
 	if idx == -1 {
-		r.list = append(r.list, &record{
-			ev:   ev,
-			name: ev.Name(),
-			list: []Listener{fn},
-		})
+		rec := &record{ev: ev, name: ev.Name()}
+		rec.setList([]Listener{fn})
+		r.list = append(r.list, rec)
 		return 1
 	}
 
-	rec.list = append(rec.list, fn)
-	return len(rec.list)
+	oldList := rec.getList()
+	newList := make([]Listener, len(oldList)+1)
+	copy(newList, oldList)
+	newList[len(oldList)] = fn
+	rec.setList(newList)
+
+	return len(newList)
 }
 
 // Remove delete the listener from the event. Returns the event's remaining
 // listeners.
 func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
-	idx, rec := r.find(ev.Name())
+	idx, rec := r.Find(ev.Name())
 	if idx == -1 {
 		return 0
 	}
 
-	for i, l := range rec.list {
+	// 1. Find the index of the listener in the list
+	oldList := rec.getList()
+	spliceIndex := -1
+	for i, l := range oldList {
 		if l == fn {
-			// Annoying cut since the Listener is a pointer
-			rec.list[i] = rec.list[len(rec.list)-1]
-			rec.list[len(rec.list)-1] = nil
-			rec.list = rec.list[:len(rec.list)-1]
+			spliceIndex = i
 			break
 		}
 	}
 
-	if l := len(rec.list); l > 0 {
-		return l
+	if spliceIndex == -1 {
+		return len(oldList)
 	}
 
-	// More annoying cuts for pointers
-	r.list[idx] = r.list[len(r.list)-1]
-	r.list[len(r.list)-1] = nil
-	r.list = r.list[:len(r.list)-1]
-	return 0
+	// 2. If that's the only listener, just remove that record entirely.
+	if len(oldList) == 1 {
+		r.list[idx] = r.list[len(r.list)-1]
+		r.list[len(r.list)-1] = nil
+		r.list = r.list[:len(r.list)-1]
+		return 0
+	}
+
+	// 3. Otherwise, make a new list copied from the parts of the old
+	newList := make([]Listener, len(oldList)-1)
+	copy(newList, oldList[:spliceIndex])
+	copy(newList[spliceIndex:], oldList[spliceIndex+1:])
+	rec.setList(newList)
+
+	return len(newList)
 }
 
 // Pubsub is an implementation of the Emitter interface using
@@ -228,9 +228,7 @@ func (p *Pubsub) resubscribe() {
 func (p *Pubsub) handleEvent(data interface{}) {
 	switch t := data.(type) {
 	case redis.Message:
-		p.subsMu.Lock()
-		rec := p.subs[PlainEvent].FindCopy(t.Channel)
-		p.subsMu.Unlock()
+		_, rec := p.subs[PlainEvent].Find(t.Channel)
 		if rec == nil {
 			return
 		}
@@ -238,9 +236,7 @@ func (p *Pubsub) handleEvent(data interface{}) {
 		rec.Emit(rec.ev.ToEvent(t.Channel, t.Channel), t.Data)
 
 	case redis.PMessage:
-		p.subsMu.Lock()
-		rec := p.subs[PatternEvent].FindCopy(t.Pattern)
-		p.subsMu.Unlock()
+		_, rec := p.subs[PatternEvent].Find(t.Pattern)
 		if rec == nil {
 			return
 		}
