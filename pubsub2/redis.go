@@ -185,6 +185,9 @@ func (p *Pubsub) work() {
 func (p *Pubsub) resubscribe() {
 	p.subsMu.Lock()
 
+	timer := gaugeLatency(PromReconnectLatency)
+	PromReconnections.Inc()
+
 	go func() {
 		// Drain the "sent" channels. Channels added to the sent channel are
 		// already recorded in the list and we don't need to dupe them. Do
@@ -222,10 +225,14 @@ func (p *Pubsub) resubscribe() {
 		}
 
 		p.subsMu.Unlock()
+		timer()
 	}()
 }
 
 func (p *Pubsub) handleEvent(data interface{}) {
+	timer := gaugeLatency(PromSendLatency)
+	defer timer()
+
 	switch t := data.(type) {
 	case redis.Message:
 		p.subsMu.Lock()
@@ -261,11 +268,15 @@ func (p *Pubsub) Errs() <-chan error {
 
 // Subscribe implements Emitter.Subscribe
 func (p *Pubsub) Subscribe(ev EventBuilder, l Listener) {
+	timer := gaugeLatency(PromSubLatency)
+	defer timer()
+
 	p.subsMu.Lock()
 	count := p.subs[ev.kind].Add(ev, l)
 	p.subsMu.Unlock()
 
 	if count == 1 {
+		PromSubscriptions.Inc()
 		written := make(chan struct{}, 1)
 		p.send <- command{
 			command: ev.kind.SubCommand(),
@@ -279,11 +290,15 @@ func (p *Pubsub) Subscribe(ev EventBuilder, l Listener) {
 
 // Unsubscribe implements Emitter.Unsubscribe
 func (p *Pubsub) Unsubscribe(ev EventBuilder, l Listener) {
+	timer := gaugeLatency(PromSubLatency)
+	defer timer()
+
 	p.subsMu.Lock()
 	count := p.subs[ev.kind].Remove(ev, l)
 	p.subsMu.Unlock()
 
 	if count == 0 {
+		PromSubscriptions.Dec()
 		written := make(chan struct{}, 1)
 		p.send <- command{
 			command: ev.kind.UnsubCommand(),
