@@ -2,10 +2,8 @@ package pubsub
 
 import (
 	"sync"
-
-	"unsafe"
-
 	"sync/atomic"
+	"unsafe"
 
 	"github.com/garyburd/redigo/redis"
 )
@@ -26,12 +24,19 @@ func (r *record) Emit(ev Event, b []byte) {
 func (r *record) setList(l []Listener) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
 func (r *record) getList() []Listener  { return *(*[]Listener)(atomic.LoadPointer(&r.list)) }
 
-type recordList struct{ list []*record }
+type recordList struct {
+	list unsafe.Pointer // to a []*record
+}
+
+func newRecordList() *recordList {
+	init := []*record{}
+	return &recordList{unsafe.Pointer(&init)}
+}
 
 // Find looks up the index for the record corresponding to the provided
-// event name. It returns -1 if one was not found.
+// event name. It returns -1 if one was not found. Thread-safe.
 func (r *recordList) Find(ev string) (index int, rec *record) {
-	for i, rec := range r.list {
+	for i, rec := range r.getList() {
 		if rec.name == ev {
 			return i, rec
 		}
@@ -41,13 +46,13 @@ func (r *recordList) Find(ev string) (index int, rec *record) {
 }
 
 // Add inserts a new listener for an event. Returns the incremented
-// number of listeners.
+// number of listeners. Not thread-safe with other write operations.
 func (r *recordList) Add(ev EventBuilder, fn Listener) int {
 	idx, rec := r.Find(ev.Name())
 	if idx == -1 {
 		rec := &record{ev: ev, name: ev.Name()}
 		rec.setList([]Listener{fn})
-		r.list = append(r.list, rec)
+		r.append(rec)
 		return 1
 	}
 
@@ -61,7 +66,7 @@ func (r *recordList) Add(ev EventBuilder, fn Listener) int {
 }
 
 // Remove delete the listener from the event. Returns the event's remaining
-// listeners.
+// listeners. Not thread-safe with other write operations.
 func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 	idx, rec := r.Find(ev.Name())
 	if idx == -1 {
@@ -84,9 +89,7 @@ func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 
 	// 2. If that's the only listener, just remove that record entirely.
 	if len(oldList) == 1 {
-		r.list[idx] = r.list[len(r.list)-1]
-		r.list[len(r.list)-1] = nil
-		r.list = r.list[:len(r.list)-1]
+		r.remove(idx)
 		return 0
 	}
 
@@ -97,6 +100,26 @@ func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 	rec.setList(newList)
 
 	return len(newList)
+}
+
+func (r *recordList) setList(l []*record) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
+
+func (r *recordList) getList() []*record { return *(*[]*record)(atomic.LoadPointer(&r.list)) }
+
+func (r *recordList) append(rec *record) {
+	oldList := r.getList()
+	newList := make([]*record, len(oldList)+1)
+	copy(newList, oldList)
+	newList[len(oldList)] = rec
+	r.setList(newList)
+}
+
+func (r *recordList) remove(index int) {
+	oldList := r.getList()
+	newList := make([]*record, len(oldList)-1)
+	copy(newList, oldList[:index])
+	copy(newList[index:], oldList[index+1:])
+	r.setList(newList)
 }
 
 // Pubsub is an implementation of the Emitter interface using
@@ -121,8 +144,8 @@ func NewPubsub(pool *redis.Pool) *Pubsub {
 		closer: make(chan struct{}),
 		send:   make(chan command),
 		subs: []*recordList{
-			PlainEvent:   &recordList{},
-			PatternEvent: &recordList{},
+			PlainEvent:   newRecordList(),
+			PatternEvent: newRecordList(),
 		},
 	}
 
@@ -208,7 +231,7 @@ func (p *Pubsub) resubscribe() {
 				continue
 			}
 
-			for _, ev := range recs.list {
+			for _, ev := range recs.getList() {
 				var ch chan<- struct{}
 				if existing, ok := toWrite[ev.name]; ok {
 					ch = existing
@@ -235,9 +258,7 @@ func (p *Pubsub) handleEvent(data interface{}) {
 
 	switch t := data.(type) {
 	case redis.Message:
-		p.subsMu.Lock()
 		_, rec := p.subs[PlainEvent].Find(t.Channel)
-		p.subsMu.Unlock()
 		if rec == nil {
 			return
 		}
@@ -245,9 +266,7 @@ func (p *Pubsub) handleEvent(data interface{}) {
 		rec.Emit(rec.ev.ToEvent(t.Channel, t.Channel), t.Data)
 
 	case redis.PMessage:
-		p.subsMu.Lock()
 		_, rec := p.subs[PatternEvent].Find(t.Pattern)
-		p.subsMu.Unlock()
 		if rec == nil {
 			return
 		}
