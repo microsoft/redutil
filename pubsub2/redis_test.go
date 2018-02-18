@@ -1,14 +1,15 @@
 package pubsub
 
 import (
+	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/garyburd/redigo/redis"
-	"github.com/stretchr/testify/assert"
-
 	"github.com/mixer/redutil/conn"
 	"github.com/mixer/redutil/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
 )
@@ -36,7 +37,7 @@ func newMockListener() *mockListener {
 }
 
 func newTestRecordList() (recs *recordList, l1 Listener, l2 Listener) {
-	recs = &recordList{}
+	recs = newRecordList()
 	l1 = newMockListener()
 	l2 = newMockListener()
 
@@ -49,39 +50,41 @@ func newTestRecordList() (recs *recordList, l1 Listener, l2 Listener) {
 func assertListenersEqual(t *testing.T, r *record, event EventBuilder, name string, listeners []Listener) {
 	assert.Equal(t, r.ev, event)
 	assert.Equal(t, r.name, name)
-	assert.Equal(t, r.getList(), listeners)
+	assert.Equal(t, listeners, r.getList())
 }
 
 func TestRecordsAddListeners(t *testing.T) {
-	list := &recordList{}
+	list := newRecordList()
 	ev := NewEvent("foo")
 	l1 := newMockListener()
 	l2 := newMockListener()
-	assert.Len(t, list.list, 0)
+	assert.Len(t, list.getList(), 0)
 
 	list.Add(ev, l1)
 
-	assert.Len(t, list.list, 1)
-	assertListenersEqual(t, list.list[0], ev, "foo", []Listener{l1})
+	list1 := list.getList()
+	assert.Len(t, list1, 1)
+	assertListenersEqual(t, list1[0], ev, "foo", []Listener{l1})
 
 	list.Add(ev, l2)
 
-	assert.Len(t, list.list, 1)
-	assertListenersEqual(t, list.list[0], ev, "foo", []Listener{l1, l2})
+	list2 := list.getList()
+	assert.Len(t, list2, 1)
+	assertListenersEqual(t, list2[0], ev, "foo", []Listener{l1, l2})
 }
 
 func TestRecordsRemoves(t *testing.T) {
 	recs, l1, l2 := newTestRecordList()
 	ev := NewEvent("foo")
-	assertListenersEqual(t, recs.list[0], ev, "foo", []Listener{l1, l2})
+	assertListenersEqual(t, recs.getList()[0], ev, "foo", []Listener{l1, l2})
 	recs.Remove(NewEvent("foo"), l2)
-	assertListenersEqual(t, recs.list[0], ev, "foo", []Listener{l1})
+	assertListenersEqual(t, recs.getList()[0], ev, "foo", []Listener{l1})
 	recs.Remove(NewEvent("foo"), l1)
-	assert.Len(t, recs.list, 0)
+	assert.Len(t, recs.getList(), 0)
 }
 
 func TestRecordFindCopyGetsEmptyByDefault(t *testing.T) {
-	i, recs := (&recordList{}).Find("foo")
+	i, recs := newRecordList().Find("foo")
 	assert.Equal(t, -1, i)
 	assert.Nil(t, recs)
 }
@@ -104,6 +107,56 @@ func TestRecordsGetCopies(t *testing.T) {
 	assert.Equal(t, updatedList, []Listener{l1, l2, l3})
 	assert.Equal(t, originalList, []Listener{l1, l2})
 	assert.Equal(t, out.getList(), []Listener{l3})
+}
+
+func doRandomly(fns []func()) {
+	for _, i := range rand.Perm(len(fns)) {
+		fns[i]()
+	}
+}
+
+func TestRaceGuarantees(t *testing.T) {
+	// this test will fail with the race detector enabled if anything that's
+	// not thread-safe happens.
+
+	recs := newRecordList()
+	ev1 := NewEvent("foo")
+	ev2 := NewEvent("bar")
+	until := time.Now().Add(100 * time.Millisecond)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	go func() {
+		defer wg.Done()
+		for time.Now().Before(until) {
+			listener1 := newMockListener()
+			listener2 := newMockListener()
+			doRandomly([]func(){
+				func() { recs.Add(ev1, listener1) },
+				func() { recs.Add(ev2, listener1) },
+				func() { recs.Add(ev1, listener2) },
+				func() { recs.Add(ev2, listener2) },
+			})
+
+			doRandomly([]func(){
+				func() { recs.Remove(ev1, listener1) },
+				func() { recs.Remove(ev2, listener1) },
+				func() { recs.Remove(ev1, listener2) },
+				func() { recs.Remove(ev2, listener2) },
+			})
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		for time.Now().Before(until) {
+			recs.Find("bar")
+			recs.Find("foo")
+		}
+	}()
+
+	wg.Wait()
 }
 
 type RedisPubsubSuite struct {
