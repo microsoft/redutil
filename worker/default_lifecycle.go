@@ -3,6 +3,7 @@ package worker
 import (
 	"bytes"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
@@ -202,6 +203,10 @@ func (l *DefaultLifecycle) removeTask(task *Task) (err error) {
 	// list (left side) might change in the meantime.
 	_, err = cnx.Do("LSET", l.workingTasks.Dest(), i-count, deleteToken)
 	if err != nil {
+		if strings.EqualFold(err.Error(), "ERR index out of range") {
+			// TODO: should we pass this up the stack and let the caller deal with it?
+			panic(err)
+		}
 		return
 	}
 
