@@ -37,6 +37,9 @@ func NewTask(lifecycle Lifecycle, payload []byte) *Task {
 // worked on.
 func (t *Task) Bytes() []byte { return t.payload }
 
+// SetBytes sets the bytes that this task is holding.
+func (t *Task) SetBytes(bytes []byte) { t.payload = bytes }
+
 // Succeed signals the lifecycle that work on this task has been completed,
 // and removes the task from the worker queue.
 func (t *Task) Succeed() error {
