@@ -137,7 +137,7 @@ func (l *DefaultLifecycle) AbandonAll() error {
 	remaining := len(l.registry) - moved
 
 	l.registry = l.registry[0:remaining]
-	l.wg.Add(-1 * remaining)
+	l.wg.Add(-1 * moved)
 
 	return err
 }
