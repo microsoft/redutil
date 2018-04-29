@@ -19,6 +19,18 @@ type ConnectionParam struct {
 	Timeout time.Duration
 }
 
+// NewWithActiveLimit makes and returns a pointer to a new Connector instance. It sets some
+// defaults on the ConnectionParam object, such as the policy, which defaults to
+// a LogReconnectPolicy with a base of 10ms. A call to this function does not
+// produce a connection.
+func NewWithActiveLimit(param ConnectionParam, maxIdle int, maxActive int) (*redis.Pool, ReconnectPolicy) {
+	if param.Policy == nil {
+		param.Policy = &LogReconnectPolicy{Base: 10, Factor: time.Millisecond}
+	}
+
+	return &redis.Pool{Dial: connect(param), MaxIdle: maxIdle, MaxActive: maxActive}, param.Policy
+}
+
 // New makes and returns a pointer to a new Connector instance. It sets some
 // defaults on the ConnectionParam object, such as the policy, which defaults to
 // a LogReconnectPolicy with a base of 10ms. A call to this function does not
@@ -28,7 +40,7 @@ func New(param ConnectionParam, maxIdle int) (*redis.Pool, ReconnectPolicy) {
 		param.Policy = &LogReconnectPolicy{Base: 10, Factor: time.Millisecond}
 	}
 
-	return redis.NewPool(connect(param), maxIdle), param.Policy
+	return &redis.Pool{Dial: connect(param), MaxIdle: maxIdle, MaxActive: 0}, param.Policy
 }
 
 // connect is a higher-order function that returns a function that dials,
