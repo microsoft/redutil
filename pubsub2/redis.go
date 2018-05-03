@@ -178,10 +178,10 @@ func (p *Pubsub) work() {
 			cnx = p.pool.Get()
 			read = newReadPump(cnx)
 			write = newWritePump(cnx)
-			p.resubscribe()
+			go write.Work()
+			p.resubscribe(write)
 
 			go read.Work()
-			go write.Work()
 		}
 
 		select {
@@ -205,51 +205,27 @@ func (p *Pubsub) work() {
 // resubscribe flushes the `send` queue and replaces it with commands
 // to resubscribe to all previously-subscribed-to channels. This will
 // NOT block until all subs are resubmitted, only until we get a lock.
-func (p *Pubsub) resubscribe() {
-	p.subsMu.Lock()
-
+func (p *Pubsub) resubscribe(write *writePump) {
 	timer := gaugeLatency(PromReconnectLatency)
 	PromReconnections.Inc()
 
-	go func() {
-		// Drain the "sent" channels. Channels added to the sent channel are
-		// already recorded in the list and we don't need to dupe them. Do
-		// store the callback, however.
-		toWrite := map[string]chan<- struct{}{}
-	L:
-		for {
-			select {
-			case s := <-p.send:
-				toWrite[s.channel] = s.written
-			default:
-				break L
-			}
+	p.subsMu.Lock()
+	defer p.subsMu.Unlock()
+
+	for kind, recs := range p.subs {
+		if recs == nil {
+			continue
 		}
 
-		for kind, recs := range p.subs {
-			if recs == nil {
-				continue
-			}
-
-			for _, ev := range recs.getList() {
-				var ch chan<- struct{}
-				if existing, ok := toWrite[ev.name]; ok {
-					ch = existing
-				} else {
-					ch = make(chan struct{}, 1)
-				}
-
-				p.send <- command{
-					command: EventType(kind).SubCommand(),
-					channel: ev.name,
-					written: ch,
-				}
+		for _, ev := range recs.getList() {
+			write.Data() <- command{
+				command: EventType(kind).SubCommand(),
+				channel: ev.name,
 			}
 		}
+	}
 
-		p.subsMu.Unlock()
-		timer()
-	}()
+	timer()
 }
 
 func (p *Pubsub) handleEvent(data interface{}) {
