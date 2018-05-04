@@ -37,11 +37,11 @@ func (suite *SimpleHeartbeatSuite) TestStrategyIsCalledAtInitializationAndInterv
 	strategy := &TestStrategy{}
 	strategy.On("Touch", "foo", "bar", suite.Pool).Return(nil)
 
-	h := heartbeat.NewSimpleHeart("bar", "foo", 5*time.Millisecond, suite.Pool, strategy)
+	h := heartbeat.NewSimpleHeart("bar", "foo", 50*time.Millisecond, suite.Pool, strategy)
 	strategy.AssertNumberOfCalls(suite.T(), "Touch", 1)
 	defer h.Close()
 
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(60 * time.Millisecond)
 
 	strategy.AssertNumberOfCalls(suite.T(), "Touch", 2)
 }
