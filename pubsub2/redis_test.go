@@ -72,13 +72,13 @@ func TestRecordsAddListeners(t *testing.T) {
 
 	list2 := list.getList()
 	assert.Len(t, list2, 1)
-	assertListenersEqual(t, list2[0], ev, "foo", []Listener{l1, l2})
+	assertListenersEqual(t, list2[0], ev, "foo", []Listener{l2, l1})
 }
 
 func TestRecordsRemoves(t *testing.T) {
 	recs, l1, l2 := newTestRecordList()
 	ev := NewEvent("foo")
-	assertListenersEqual(t, recs.getList()[0], ev, "foo", []Listener{l1, l2})
+	assertListenersEqual(t, recs.getList()[0], ev, "foo", []Listener{l2, l1})
 	recs.Remove(NewEvent("foo"), l2)
 	assertListenersEqual(t, recs.getList()[0], ev, "foo", []Listener{l1})
 	recs.Remove(NewEvent("foo"), l1)
@@ -98,16 +98,16 @@ func TestRecordsGetCopies(t *testing.T) {
 	l3 := newMockListener()
 
 	originalList := out.getList()
-	assert.Equal(t, originalList, []Listener{l1, l2})
+	assert.Equal(t, originalList, []Listener{l2, l1})
 	recs.Add(ev, l3)
-	assert.Equal(t, originalList, []Listener{l1, l2})
+	assert.Equal(t, originalList, []Listener{l2, l1})
 
 	updatedList := out.getList()
-	assert.Equal(t, updatedList, []Listener{l1, l2, l3})
+	assert.Equal(t, updatedList, []Listener{l3, l2, l1})
 	recs.Remove(ev, l1)
 	recs.Remove(ev, l2)
-	assert.Equal(t, updatedList, []Listener{l1, l2, l3})
-	assert.Equal(t, originalList, []Listener{l1, l2})
+	assert.Equal(t, updatedList, []Listener{l3, l2, l1})
+	assert.Equal(t, originalList, []Listener{l2, l1})
 	assert.Equal(t, out.getList(), []Listener{l3})
 }
 

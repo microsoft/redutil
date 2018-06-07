@@ -113,7 +113,9 @@ func (r *RecordList) Add(ev EventBuilder, fn Listener) int {
 	if rec.inactiveItems == 0 {
 		rec.inactiveItems = len(oldList)
 		newList := make([]unsafe.Pointer, len(oldList)*2+1)
-		copy(newList, oldList)
+		// copy so that the new list items are at the end of the list,
+		// this lets the slot search later run and find free space faster.
+		copy(newList[len(oldList)+1:], oldList)
 		newList[len(oldList)] = unsafe.Pointer(&fn)
 		rec.setList(newList)
 		return newCount
