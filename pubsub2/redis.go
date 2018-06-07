@@ -8,21 +8,37 @@ import (
 	"github.com/garyburd/redigo/redis"
 )
 
+// compactionThreshold defines how many inactiveItems versus inactiveItems
+// have to be in the record before we'll do a full cleanup sweep.
+const compactionThreshold = 2
+
 type record struct {
-	name string
-	ev   EventBuilder
-	list unsafe.Pointer // to a []Listener
+	name                       string
+	ev                         EventBuilder
+	list                       unsafe.Pointer // to a []Listener
+	activeItems, inactiveItems int
 }
 
 // Emit invokes all attached listeners with the provided event.
 func (r *record) Emit(ev Event, b []byte) {
-	for _, l := range r.getList() {
-		l.Handle(ev, b)
+	for _, l := range r.getUnsafeList() {
+		(*(*Listener)(l)).Handle(ev, b)
 	}
 }
 
-func (r *record) setList(l []Listener) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
-func (r *record) getList() []Listener  { return *(*[]Listener)(atomic.LoadPointer(&r.list)) }
+func (r *record) setList(l []unsafe.Pointer) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
+func (r *record) getList() []Listener {
+	original := r.getUnsafeList()
+	output := make([]Listener, len(original))
+	for i, ptr := range original {
+		output[i] = *(*Listener)(ptr)
+	}
+
+	return output
+}
+func (r *record) getUnsafeList() []unsafe.Pointer {
+	return *(*[]unsafe.Pointer)(atomic.LoadPointer(&r.list))
+}
 
 type recordList struct {
 	list unsafe.Pointer // to a []*record
@@ -51,15 +67,15 @@ func (r *recordList) Add(ev EventBuilder, fn Listener) int {
 	idx, rec := r.Find(ev.Name())
 	if idx == -1 {
 		rec := &record{ev: ev, name: ev.Name()}
-		rec.setList([]Listener{fn})
+		rec.setList([]unsafe.Pointer{unsafe.Pointer(&fn)})
 		r.append(rec)
 		return 1
 	}
 
-	oldList := rec.getList()
-	newList := make([]Listener, len(oldList)+1)
+	oldList := rec.getUnsafeList()
+	newList := make([]unsafe.Pointer, len(oldList)+1)
 	copy(newList, oldList)
-	newList[len(oldList)] = fn
+	newList[len(oldList)] = unsafe.Pointer(&fn)
 	rec.setList(newList)
 
 	return len(newList)
@@ -74,10 +90,10 @@ func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 	}
 
 	// 1. Find the index of the listener in the list
-	oldList := rec.getList()
+	oldList := rec.getUnsafeList()
 	spliceIndex := -1
 	for i, l := range oldList {
-		if l == fn {
+		if (*(*Listener)(l)) == fn {
 			spliceIndex = i
 			break
 		}
@@ -94,7 +110,7 @@ func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 	}
 
 	// 3. Otherwise, make a new list copied from the parts of the old
-	newList := make([]Listener, len(oldList)-1)
+	newList := make([]unsafe.Pointer, len(oldList)-1)
 	copy(newList, oldList[:spliceIndex])
 	copy(newList[spliceIndex:], oldList[spliceIndex+1:])
 	rec.setList(newList)

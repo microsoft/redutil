@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
 	"github.com/garyburd/redigo/redis"
 	"github.com/mixer/redutil/conn"
 	"github.com/mixer/redutil/test"
@@ -292,3 +294,63 @@ func (r *RedisPubsubSuite) TestResubscribesWhenDies() {
 	r.MustDo("PUBLISH", "foo", body)
 	l.waitForCall()
 }
+
+func createBenchmarkList(count int) (listeners []*Listener, recordInst *record, recordList *recordList) {
+	listeners = make([]*Listener, count)
+	fn := func(_ Event, _ []byte) {}
+	for i := 0; i < count; i++ {
+		wrapped := ListenerFunc(fn)
+		listeners[i] = &wrapped
+	}
+
+	recordInst = &record{list: unsafe.Pointer(&listeners)}
+	recordInner := []*record{recordInst}
+	recordList = newRecordList()
+	recordList.list = unsafe.Pointer(&recordInner)
+	return
+}
+
+func runBenchmarkAddBenchmark(count int, b *testing.B) {
+	listeners, recordInst, recordList := createBenchmarkList(count)
+	b.ResetTimer()
+
+	ev := NewEvent()
+	fn := ListenerFunc(func(_ Event, _ []byte) {})
+	for i := 0; i < b.N; i++ {
+		recordInst.list = unsafe.Pointer(&listeners)
+		recordList.Add(ev, fn)
+	}
+}
+
+func runBenchmarkRemoveBenchmark(count int, b *testing.B) {
+	listeners, recordInst, recordList := createBenchmarkList(count)
+	b.ResetTimer()
+
+	ev := NewEvent()
+	for i := 0; i < b.N; i++ {
+		recordInst.list = unsafe.Pointer(&listeners)
+		recordList.Remove(ev, *listeners[0])
+	}
+}
+
+func runBenchmarkBroadcastBenchmark(count int, b *testing.B) {
+	_, recordInst, _ := createBenchmarkList(count)
+	b.ResetTimer()
+
+	ev := NewEvent().ToEvent("", "")
+	for i := 0; i < b.N; i++ {
+		recordInst.Emit(ev, nil)
+	}
+}
+
+func BenchmarkBroadcast1K(b *testing.B)   { runBenchmarkBroadcastBenchmark(1000, b) }
+func BenchmarkBroadcast10K(b *testing.B)  { runBenchmarkBroadcastBenchmark(10000, b) }
+func BenchmarkBroadcast100K(b *testing.B) { runBenchmarkBroadcastBenchmark(100000, b) }
+
+func BenchmarkRecordAdd1K(b *testing.B)   { runBenchmarkAddBenchmark(1000, b) }
+func BenchmarkRecordAdd10K(b *testing.B)  { runBenchmarkAddBenchmark(10000, b) }
+func BenchmarkRecordAdd100K(b *testing.B) { runBenchmarkAddBenchmark(100000, b) }
+
+func BenchmarkRecordRemove1K(b *testing.B)   { runBenchmarkRemoveBenchmark(1000, b) }
+func BenchmarkRecordRemove10K(b *testing.B)  { runBenchmarkRemoveBenchmark(10000, b) }
+func BenchmarkRecordRemove100K(b *testing.B) { runBenchmarkRemoveBenchmark(100000, b) }
