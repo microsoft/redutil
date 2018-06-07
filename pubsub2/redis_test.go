@@ -38,8 +38,8 @@ func newMockListener() *mockListener {
 	return &mockListener{called: make(chan struct{}, 1)}
 }
 
-func newTestRecordList() (recs *recordList, l1 Listener, l2 Listener) {
-	recs = newRecordList()
+func newTestRecordList() (recs *RecordList, l1 Listener, l2 Listener) {
+	recs = NewRecordList()
 	l1 = newMockListener()
 	l2 = newMockListener()
 
@@ -56,7 +56,7 @@ func assertListenersEqual(t *testing.T, r *record, event EventBuilder, name stri
 }
 
 func TestRecordsAddListeners(t *testing.T) {
-	list := newRecordList()
+	list := NewRecordList()
 	ev := NewEvent("foo")
 	l1 := newMockListener()
 	l2 := newMockListener()
@@ -86,7 +86,7 @@ func TestRecordsRemoves(t *testing.T) {
 }
 
 func TestRecordFindCopyGetsEmptyByDefault(t *testing.T) {
-	i, recs := newRecordList().Find("foo")
+	i, recs := NewRecordList().Find("foo")
 	assert.Equal(t, -1, i)
 	assert.Nil(t, recs)
 }
@@ -121,10 +121,10 @@ func TestRaceGuarantees(t *testing.T) {
 	// this test will fail with the race detector enabled if anything that's
 	// not thread-safe happens.
 
-	recs := newRecordList()
+	recs := NewRecordList()
 	ev1 := NewEvent("foo")
 	ev2 := NewEvent("bar")
-	until := time.Now().Add(100 * time.Millisecond)
+	until := time.Now().Add(500 * time.Millisecond)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -295,7 +295,7 @@ func (r *RedisPubsubSuite) TestResubscribesWhenDies() {
 	l.waitForCall()
 }
 
-func createBenchmarkList(count int, removeEvery int) (listeners []*Listener, recordInst *record, recordList *recordList) {
+func createBenchmarkList(count int, removeEvery int) (listeners []*Listener, recordInst *record, recordList *RecordList) {
 	listeners = make([]*Listener, count)
 	for i := 0; i < count; i++ {
 		wrapped := ListenerFunc(func(_ Event, _ []byte) {})
@@ -304,7 +304,7 @@ func createBenchmarkList(count int, removeEvery int) (listeners []*Listener, rec
 
 	recordInst = &record{list: unsafe.Pointer(&listeners)}
 	recordInner := []*record{recordInst}
-	recordList = newRecordList()
+	recordList = NewRecordList()
 	recordList.list = unsafe.Pointer(&recordInner)
 
 	for i := removeEvery; i < count; i += removeEvery {
