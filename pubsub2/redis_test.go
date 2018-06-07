@@ -295,11 +295,10 @@ func (r *RedisPubsubSuite) TestResubscribesWhenDies() {
 	l.waitForCall()
 }
 
-func createBenchmarkList(count int) (listeners []*Listener, recordInst *record, recordList *recordList) {
+func createBenchmarkList(count int, removeEvery int) (listeners []*Listener, recordInst *record, recordList *recordList) {
 	listeners = make([]*Listener, count)
-	fn := func(_ Event, _ []byte) {}
 	for i := 0; i < count; i++ {
-		wrapped := ListenerFunc(fn)
+		wrapped := ListenerFunc(func(_ Event, _ []byte) {})
 		listeners[i] = &wrapped
 	}
 
@@ -307,11 +306,16 @@ func createBenchmarkList(count int) (listeners []*Listener, recordInst *record, 
 	recordInner := []*record{recordInst}
 	recordList = newRecordList()
 	recordList.list = unsafe.Pointer(&recordInner)
+
+	for i := removeEvery; i < count; i += removeEvery {
+		recordList.Remove(NewEvent(), *listeners[i])
+	}
+
 	return
 }
 
 func runBenchmarkAddBenchmark(count int, b *testing.B) {
-	listeners, recordInst, recordList := createBenchmarkList(count)
+	listeners, recordInst, recordList := createBenchmarkList(count, 3)
 	b.ResetTimer()
 
 	ev := NewEvent()
@@ -323,18 +327,20 @@ func runBenchmarkAddBenchmark(count int, b *testing.B) {
 }
 
 func runBenchmarkRemoveBenchmark(count int, b *testing.B) {
-	listeners, recordInst, recordList := createBenchmarkList(count)
+	listeners, recordInst, recordList := createBenchmarkList(count, 3)
+	first := listeners[0]
 	b.ResetTimer()
 
 	ev := NewEvent()
 	for i := 0; i < b.N; i++ {
+		listeners[0] = first
 		recordInst.list = unsafe.Pointer(&listeners)
-		recordList.Remove(ev, *listeners[0])
+		recordList.Remove(ev, *first)
 	}
 }
 
 func runBenchmarkBroadcastBenchmark(count int, b *testing.B) {
-	_, recordInst, _ := createBenchmarkList(count)
+	_, recordInst, _ := createBenchmarkList(count, 3)
 	b.ResetTimer()
 
 	ev := NewEvent().ToEvent("", "")

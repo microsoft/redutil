@@ -8,34 +8,66 @@ import (
 	"github.com/garyburd/redigo/redis"
 )
 
-// compactionThreshold defines how many inactiveItems versus inactiveItems
+// compactionThreshold defines how many inactiveItems / total length
 // have to be in the record before we'll do a full cleanup sweep.
-const compactionThreshold = 2
+const compactionThreshold = 0.5
 
 type record struct {
-	name                       string
-	ev                         EventBuilder
-	list                       unsafe.Pointer // to a []Listener
-	activeItems, inactiveItems int
+	name          string
+	ev            EventBuilder
+	list          unsafe.Pointer // to a []Listener
+	inactiveItems int
 }
 
 // Emit invokes all attached listeners with the provided event.
 func (r *record) Emit(ev Event, b []byte) {
-	for _, l := range r.getUnsafeList() {
-		(*(*Listener)(l)).Handle(ev, b)
+	// This looks absolutely _horrible_. It'd be better in C. Anyway, the idea
+	// is that we have a list of unsafe pointers, which is stored in the list
+	// which is an atomic pointer itself. We can swap the pointer held at each
+	// address in the list, so _that_ address needs to be loaded atomically.
+	// This means we need to actually load the data from the address at
+	// offset X from the start of the array underlying the slice.
+	//
+	// The cost of the atomic loading makes 5-10% slower, but allows us to
+	// atomically insert and remove listeners in many cases.
+
+	list := r.getUnsafeList()
+	for i := 0; i < len(list); i++ {
+		addr := uintptr(unsafe.Pointer(&list[i]))
+		value := atomic.LoadPointer(*(**unsafe.Pointer)(unsafe.Pointer(&addr)))
+		if (uintptr)(value) != 0 {
+			(*(*Listener)(value)).Handle(ev, b)
+		}
 	}
 }
 
 func (r *record) setList(l []unsafe.Pointer) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
+
+func (r *record) storeAtIndex(index int, listener Listener) {
+	// see Emit for details about this code.
+	list := r.getUnsafeList()
+	addr := uintptr(unsafe.Pointer(&list[index]))
+
+	var storedPtr unsafe.Pointer
+	if listener != nil {
+		storedPtr = unsafe.Pointer(&listener)
+	}
+
+	atomic.StorePointer(*(**unsafe.Pointer)(unsafe.Pointer(&addr)), storedPtr)
+}
+
 func (r *record) getList() []Listener {
 	original := r.getUnsafeList()
 	output := make([]Listener, len(original))
 	for i, ptr := range original {
-		output[i] = *(*Listener)(ptr)
+		if (uintptr)(ptr) != 0 {
+			output[i] = *(*Listener)(ptr)
+		}
 	}
 
 	return output
 }
+
 func (r *record) getUnsafeList() []unsafe.Pointer {
 	return *(*[]unsafe.Pointer)(atomic.LoadPointer(&r.list))
 }
@@ -73,12 +105,23 @@ func (r *recordList) Add(ev EventBuilder, fn Listener) int {
 	}
 
 	oldList := rec.getUnsafeList()
-	newList := make([]unsafe.Pointer, len(oldList)+1)
-	copy(newList, oldList)
-	newList[len(oldList)] = unsafe.Pointer(&fn)
-	rec.setList(newList)
+	newCount := len(oldList) - rec.inactiveItems + 1
+	if rec.inactiveItems == 0 {
+		newList := make([]unsafe.Pointer, len(oldList)+1)
+		copy(newList, oldList)
+		newList[len(oldList)] = unsafe.Pointer(&fn)
+		rec.setList(newList)
+		return newCount
+	}
 
-	return len(newList)
+	for i, ptr := range oldList {
+		if (uintptr)(ptr) == 0 {
+			rec.storeAtIndex(i, fn)
+			return newCount
+		}
+	}
+
+	return newCount
 }
 
 // Remove delete the listener from the event. Returns the event's remaining
@@ -93,7 +136,7 @@ func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 	oldList := rec.getUnsafeList()
 	spliceIndex := -1
 	for i, l := range oldList {
-		if (*(*Listener)(l)) == fn {
+		if (uintptr)(l) != 0 && (*(*Listener)(l)) == fn {
 			spliceIndex = i
 			break
 		}
@@ -103,19 +146,31 @@ func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 		return len(oldList)
 	}
 
+	newCount := len(oldList) - rec.inactiveItems - 1
 	// 2. If that's the only listener, just remove that record entirely.
-	if len(oldList) == 1 {
+	if newCount == 0 {
 		r.remove(idx)
 		return 0
 	}
 
-	// 3. Otherwise, make a new list copied from the parts of the old
-	newList := make([]unsafe.Pointer, len(oldList)-1)
-	copy(newList, oldList[:spliceIndex])
-	copy(newList[spliceIndex:], oldList[spliceIndex+1:])
+	// 3. Otherwise, wipe the pointer, or make a new list copied from the parts
+	// of the old if we wanted to compact it.
+	if float32(rec.inactiveItems+1)/float32(len(oldList)) < compactionThreshold {
+		rec.storeAtIndex(spliceIndex, nil)
+		rec.inactiveItems++
+		return newCount
+	}
+
+	newList := make([]unsafe.Pointer, 0, newCount)
+	for i, ptr := range oldList {
+		if (uintptr)(ptr) != 0 && i != spliceIndex {
+			newList = append(newList, ptr)
+		}
+	}
+	rec.inactiveItems = 0
 	rec.setList(newList)
 
-	return len(newList)
+	return newCount
 }
 
 func (r *recordList) setList(l []*record) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
