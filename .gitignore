@@ -28,3 +28,7 @@ _testmain.go
 *.prof
 
 /.idea
+/fuzz_record_list-fuzz.zip
+/pubsub2/fuzz_record_list_output
+/*.txt
+/*.zip

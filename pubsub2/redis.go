@@ -8,34 +8,86 @@ import (
 	"github.com/garyburd/redigo/redis"
 )
 
+// compactionThreshold defines how many inactiveItems / total length
+// have to be in the record before we'll do a full cleanup sweep.
+const compactionThreshold = 0.5
+
 type record struct {
-	name string
-	ev   EventBuilder
-	list unsafe.Pointer // to a []Listener
+	name          string
+	ev            EventBuilder
+	list          unsafe.Pointer // to a []Listener
+	inactiveItems int
 }
 
 // Emit invokes all attached listeners with the provided event.
 func (r *record) Emit(ev Event, b []byte) {
-	for _, l := range r.getList() {
-		l.Handle(ev, b)
+	// This looks absolutely _horrible_. It'd be better in C. Anyway, the idea
+	// is that we have a list of unsafe pointers, which is stored in the list
+	// which is an atomic pointer itself. We can swap the pointer held at each
+	// address in the list, so _that_ address needs to be loaded atomically.
+	// This means we need to actually load the data from the address at
+	// offset X from the start of the array underlying the slice.
+	//
+	// The cost of the atomic loading makes 5-10% slower, but allows us to
+	// atomically insert and remove listeners in many cases.
+
+	list := r.getUnsafeList()
+	for i := 0; i < len(list); i++ {
+		addr := uintptr(unsafe.Pointer(&list[i]))
+		value := atomic.LoadPointer(*(**unsafe.Pointer)(unsafe.Pointer(&addr)))
+		if value != nil {
+			(*(*Listener)(value)).Handle(ev, b)
+		}
 	}
 }
 
-func (r *record) setList(l []Listener) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
-func (r *record) getList() []Listener  { return *(*[]Listener)(atomic.LoadPointer(&r.list)) }
+func (r *record) setList(l []unsafe.Pointer) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
 
-type recordList struct {
+func (r *record) storeAtIndex(index int, listener Listener) {
+	// see Emit for details about this code.
+	list := r.getUnsafeList()
+	addr := uintptr(unsafe.Pointer(&list[index]))
+
+	var storedPtr unsafe.Pointer
+	if listener != nil {
+		storedPtr = unsafe.Pointer(&listener)
+	}
+
+	atomic.StorePointer(*(**unsafe.Pointer)(unsafe.Pointer(&addr)), storedPtr)
+}
+
+func (r *record) getList() []Listener {
+	original := r.getUnsafeList()
+	output := make([]Listener, 0, len(original)-r.inactiveItems)
+	for _, ptr := range original {
+		if ptr != nil {
+			output = append(output, *(*Listener)(ptr))
+		}
+	}
+
+	return output
+}
+
+func (r *record) getUnsafeList() []unsafe.Pointer {
+	return *(*[]unsafe.Pointer)(atomic.LoadPointer(&r.list))
+}
+
+// RecordList is used internally for recording which listeners are listening
+// to events. It's exposed for testing/fuzzing purposes, but you do not use
+// it directly as a consumer.
+type RecordList struct {
 	list unsafe.Pointer // to a []*record
 }
 
-func newRecordList() *recordList {
+// Creates a new, empty, record list.
+func NewRecordList() *RecordList {
 	init := []*record{}
-	return &recordList{unsafe.Pointer(&init)}
+	return &RecordList{unsafe.Pointer(&init)}
 }
 
 // Find looks up the index for the record corresponding to the provided
 // event name. It returns -1 if one was not found. Thread-safe.
-func (r *recordList) Find(ev string) (index int, rec *record) {
+func (r *RecordList) Find(ev string) (index int, rec *record) {
 	for i, rec := range r.getList() {
 		if rec.name == ev {
 			return i, rec
@@ -47,37 +99,52 @@ func (r *recordList) Find(ev string) (index int, rec *record) {
 
 // Add inserts a new listener for an event. Returns the incremented
 // number of listeners. Not thread-safe with other write operations.
-func (r *recordList) Add(ev EventBuilder, fn Listener) int {
+func (r *RecordList) Add(ev EventBuilder, fn Listener) int {
 	idx, rec := r.Find(ev.Name())
 	if idx == -1 {
 		rec := &record{ev: ev, name: ev.Name()}
-		rec.setList([]Listener{fn})
+		rec.setList([]unsafe.Pointer{unsafe.Pointer(&fn)})
 		r.append(rec)
 		return 1
 	}
 
-	oldList := rec.getList()
-	newList := make([]Listener, len(oldList)+1)
-	copy(newList, oldList)
-	newList[len(oldList)] = fn
-	rec.setList(newList)
+	oldList := rec.getUnsafeList()
+	newCount := len(oldList) - rec.inactiveItems + 1
+	if rec.inactiveItems == 0 {
+		rec.inactiveItems = len(oldList)
+		newList := make([]unsafe.Pointer, len(oldList)*2+1)
+		// copy so that the new list items are at the end of the list,
+		// this lets the slot search later run and find free space faster.
+		copy(newList[len(oldList)+1:], oldList)
+		newList[len(oldList)] = unsafe.Pointer(&fn)
+		rec.setList(newList)
+		return newCount
+	}
 
-	return len(newList)
+	for i, ptr := range oldList {
+		if ptr == nil {
+			rec.storeAtIndex(i, fn)
+			rec.inactiveItems--
+			return newCount
+		}
+	}
+
+	panic("unreachable")
 }
 
 // Remove delete the listener from the event. Returns the event's remaining
 // listeners. Not thread-safe with other write operations.
-func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
+func (r *RecordList) Remove(ev EventBuilder, fn Listener) int {
 	idx, rec := r.Find(ev.Name())
 	if idx == -1 {
 		return 0
 	}
 
 	// 1. Find the index of the listener in the list
-	oldList := rec.getList()
+	oldList := rec.getUnsafeList()
 	spliceIndex := -1
 	for i, l := range oldList {
-		if l == fn {
+		if l != nil && (*(*Listener)(l)) == fn {
 			spliceIndex = i
 			break
 		}
@@ -87,26 +154,48 @@ func (r *recordList) Remove(ev EventBuilder, fn Listener) int {
 		return len(oldList)
 	}
 
+	newCount := len(oldList) - rec.inactiveItems - 1
 	// 2. If that's the only listener, just remove that record entirely.
-	if len(oldList) == 1 {
+	if newCount == 0 {
 		r.remove(idx)
 		return 0
 	}
 
-	// 3. Otherwise, make a new list copied from the parts of the old
-	newList := make([]Listener, len(oldList)-1)
-	copy(newList, oldList[:spliceIndex])
-	copy(newList[spliceIndex:], oldList[spliceIndex+1:])
+	// 3. Otherwise, wipe the pointer, or make a new list copied from the parts
+	// of the old if we wanted to compact it.
+	if float32(rec.inactiveItems+1)/float32(len(oldList)) < compactionThreshold {
+		rec.storeAtIndex(spliceIndex, nil)
+		rec.inactiveItems++
+		return newCount
+	}
+
+	newList := make([]unsafe.Pointer, 0, newCount)
+	for i, ptr := range oldList {
+		if ptr != nil && i != spliceIndex {
+			newList = append(newList, ptr)
+		}
+	}
+	rec.inactiveItems = 0
 	rec.setList(newList)
 
-	return len(newList)
+	return newCount
 }
 
-func (r *recordList) setList(l []*record) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
+// ListenersFor returns the list of listeners attached to the given event.
+func (r *RecordList) ListenersFor(ev EventBuilder) []Listener {
+	idx, rec := r.Find(ev.Name())
+	if idx == -1 {
+		return nil
+	}
 
-func (r *recordList) getList() []*record { return *(*[]*record)(atomic.LoadPointer(&r.list)) }
+	return rec.getList()
+}
 
-func (r *recordList) append(rec *record) {
+func (r *RecordList) setList(l []*record) { atomic.StorePointer(&r.list, (unsafe.Pointer)(&l)) }
+
+func (r *RecordList) getList() []*record { return *(*[]*record)(atomic.LoadPointer(&r.list)) }
+
+func (r *RecordList) append(rec *record) {
 	oldList := r.getList()
 	newList := make([]*record, len(oldList)+1)
 	copy(newList, oldList)
@@ -114,7 +203,7 @@ func (r *recordList) append(rec *record) {
 	r.setList(newList)
 }
 
-func (r *recordList) remove(index int) {
+func (r *RecordList) remove(index int) {
 	oldList := r.getList()
 	newList := make([]*record, len(oldList)-1)
 	copy(newList, oldList[:index])
@@ -132,7 +221,7 @@ type Pubsub struct {
 
 	// Lists of listeners for subscribers and pattern subscribers
 	subsMu sync.Mutex
-	subs   []*recordList
+	subs   []*RecordList
 }
 
 // NewPubsub creates a new Emitter based on pubsub on the provided
@@ -143,9 +232,9 @@ func NewPubsub(pool *redis.Pool) *Pubsub {
 		errs:   make(chan error),
 		closer: make(chan struct{}),
 		send:   make(chan command),
-		subs: []*recordList{
-			PlainEvent:   newRecordList(),
-			PatternEvent: newRecordList(),
+		subs: []*RecordList{
+			PlainEvent:   NewRecordList(),
+			PatternEvent: NewRecordList(),
 		},
 	}
 

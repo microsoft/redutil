@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"unsafe"
+
 	"github.com/garyburd/redigo/redis"
 	"github.com/mixer/redutil/conn"
 	"github.com/mixer/redutil/test"
@@ -36,8 +38,8 @@ func newMockListener() *mockListener {
 	return &mockListener{called: make(chan struct{}, 1)}
 }
 
-func newTestRecordList() (recs *recordList, l1 Listener, l2 Listener) {
-	recs = newRecordList()
+func newTestRecordList() (recs *RecordList, l1 Listener, l2 Listener) {
+	recs = NewRecordList()
 	l1 = newMockListener()
 	l2 = newMockListener()
 
@@ -54,7 +56,7 @@ func assertListenersEqual(t *testing.T, r *record, event EventBuilder, name stri
 }
 
 func TestRecordsAddListeners(t *testing.T) {
-	list := newRecordList()
+	list := NewRecordList()
 	ev := NewEvent("foo")
 	l1 := newMockListener()
 	l2 := newMockListener()
@@ -70,13 +72,13 @@ func TestRecordsAddListeners(t *testing.T) {
 
 	list2 := list.getList()
 	assert.Len(t, list2, 1)
-	assertListenersEqual(t, list2[0], ev, "foo", []Listener{l1, l2})
+	assertListenersEqual(t, list2[0], ev, "foo", []Listener{l2, l1})
 }
 
 func TestRecordsRemoves(t *testing.T) {
 	recs, l1, l2 := newTestRecordList()
 	ev := NewEvent("foo")
-	assertListenersEqual(t, recs.getList()[0], ev, "foo", []Listener{l1, l2})
+	assertListenersEqual(t, recs.getList()[0], ev, "foo", []Listener{l2, l1})
 	recs.Remove(NewEvent("foo"), l2)
 	assertListenersEqual(t, recs.getList()[0], ev, "foo", []Listener{l1})
 	recs.Remove(NewEvent("foo"), l1)
@@ -84,7 +86,7 @@ func TestRecordsRemoves(t *testing.T) {
 }
 
 func TestRecordFindCopyGetsEmptyByDefault(t *testing.T) {
-	i, recs := newRecordList().Find("foo")
+	i, recs := NewRecordList().Find("foo")
 	assert.Equal(t, -1, i)
 	assert.Nil(t, recs)
 }
@@ -96,16 +98,16 @@ func TestRecordsGetCopies(t *testing.T) {
 	l3 := newMockListener()
 
 	originalList := out.getList()
-	assert.Equal(t, originalList, []Listener{l1, l2})
+	assert.Equal(t, originalList, []Listener{l2, l1})
 	recs.Add(ev, l3)
-	assert.Equal(t, originalList, []Listener{l1, l2})
+	assert.Equal(t, originalList, []Listener{l2, l1})
 
 	updatedList := out.getList()
-	assert.Equal(t, updatedList, []Listener{l1, l2, l3})
+	assert.Equal(t, updatedList, []Listener{l3, l2, l1})
 	recs.Remove(ev, l1)
 	recs.Remove(ev, l2)
-	assert.Equal(t, updatedList, []Listener{l1, l2, l3})
-	assert.Equal(t, originalList, []Listener{l1, l2})
+	assert.Equal(t, updatedList, []Listener{l3, l2, l1})
+	assert.Equal(t, originalList, []Listener{l2, l1})
 	assert.Equal(t, out.getList(), []Listener{l3})
 }
 
@@ -119,10 +121,10 @@ func TestRaceGuarantees(t *testing.T) {
 	// this test will fail with the race detector enabled if anything that's
 	// not thread-safe happens.
 
-	recs := newRecordList()
+	recs := NewRecordList()
 	ev1 := NewEvent("foo")
 	ev2 := NewEvent("bar")
-	until := time.Now().Add(100 * time.Millisecond)
+	until := time.Now().Add(500 * time.Millisecond)
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -292,3 +294,69 @@ func (r *RedisPubsubSuite) TestResubscribesWhenDies() {
 	r.MustDo("PUBLISH", "foo", body)
 	l.waitForCall()
 }
+
+func createBenchmarkList(count int, removeEvery int) (listeners []*Listener, recordInst *record, recordList *RecordList) {
+	listeners = make([]*Listener, count)
+	for i := 0; i < count; i++ {
+		wrapped := ListenerFunc(func(_ Event, _ []byte) {})
+		listeners[i] = &wrapped
+	}
+
+	recordInst = &record{list: unsafe.Pointer(&listeners)}
+	recordInner := []*record{recordInst}
+	recordList = NewRecordList()
+	recordList.list = unsafe.Pointer(&recordInner)
+
+	for i := removeEvery; i < count; i += removeEvery {
+		recordList.Remove(NewEvent(), *listeners[i])
+	}
+
+	return
+}
+
+func runBenchmarkAddBenchmark(count int, b *testing.B) {
+	listeners, recordInst, recordList := createBenchmarkList(count, 3)
+	b.ResetTimer()
+
+	ev := NewEvent()
+	fn := ListenerFunc(func(_ Event, _ []byte) {})
+	for i := 0; i < b.N; i++ {
+		recordInst.list = unsafe.Pointer(&listeners)
+		recordList.Add(ev, fn)
+	}
+}
+
+func runBenchmarkRemoveBenchmark(count int, b *testing.B) {
+	listeners, recordInst, recordList := createBenchmarkList(count, 3)
+	first := listeners[0]
+	b.ResetTimer()
+
+	ev := NewEvent()
+	for i := 0; i < b.N; i++ {
+		listeners[0] = first
+		recordInst.list = unsafe.Pointer(&listeners)
+		recordList.Remove(ev, *first)
+	}
+}
+
+func runBenchmarkBroadcastBenchmark(count int, b *testing.B) {
+	_, recordInst, _ := createBenchmarkList(count, 3)
+	b.ResetTimer()
+
+	ev := NewEvent().ToEvent("", "")
+	for i := 0; i < b.N; i++ {
+		recordInst.Emit(ev, nil)
+	}
+}
+
+func BenchmarkBroadcast1K(b *testing.B)   { runBenchmarkBroadcastBenchmark(1000, b) }
+func BenchmarkBroadcast10K(b *testing.B)  { runBenchmarkBroadcastBenchmark(10000, b) }
+func BenchmarkBroadcast100K(b *testing.B) { runBenchmarkBroadcastBenchmark(100000, b) }
+
+func BenchmarkRecordAdd1K(b *testing.B)   { runBenchmarkAddBenchmark(1000, b) }
+func BenchmarkRecordAdd10K(b *testing.B)  { runBenchmarkAddBenchmark(10000, b) }
+func BenchmarkRecordAdd100K(b *testing.B) { runBenchmarkAddBenchmark(100000, b) }
+
+func BenchmarkRecordRemove1K(b *testing.B)   { runBenchmarkRemoveBenchmark(1000, b) }
+func BenchmarkRecordRemove10K(b *testing.B)  { runBenchmarkRemoveBenchmark(10000, b) }
+func BenchmarkRecordRemove100K(b *testing.B) { runBenchmarkRemoveBenchmark(100000, b) }
