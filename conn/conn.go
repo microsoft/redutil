@@ -77,7 +77,7 @@ func connect(param ConnectionParam) func() (redis.Conn, error) {
 			}...)
 		}
 
-		cnx, err = redis.Dial("tcp", param.Address)
+		cnx, err = redis.Dial("tcp", param.Address, options...)
 		return
 	}
 }
