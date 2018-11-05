@@ -17,6 +17,8 @@ type ConnectionParam struct {
 	Policy ReconnectPolicy
 	// Dial timeout for redis (defaults to no timeout)
 	Timeout time.Duration
+	// Whether or not to secure the connection with TLS
+	UseTLS bool
 }
 
 // NewWithActiveLimit makes and returns a pointer to a new Connector instance. It sets some
@@ -58,23 +60,24 @@ func New(param ConnectionParam, maxIdle int) (*redis.Pool, ReconnectPolicy) {
 // considered useless.
 func connect(param ConnectionParam) func() (redis.Conn, error) {
 	return func() (cnx redis.Conn, err error) {
-		if param.Timeout > 0 {
-			cnx, err = redis.DialTimeout("tcp", param.Address,
-				param.Timeout, param.Timeout, param.Timeout)
-		} else {
-			cnx, err = redis.Dial("tcp", param.Address)
-		}
-
-		if err != nil {
-			return
+		options := make([]redis.DialOption, 0)
+		if param.UseTLS {
+			options = append(options, redis.DialUseTLS(param.UseTLS))
 		}
 
 		if param.Password != "" {
-			if _, err = cnx.Do("AUTH", param.Password); err != nil {
-				return
-			}
+			options = append(options, redis.DialPassword(param.Password))
 		}
 
+		if param.Timeout > 0 {
+			options = append(options, []redis.DialOption{
+				redis.DialConnectTimeout(param.Timeout),
+				redis.DialReadTimeout(param.Timeout),
+				redis.DialWriteTimeout(param.Timeout),
+			}...)
+		}
+
+		cnx, err = redis.Dial("tcp", param.Address)
 		return
 	}
 }
