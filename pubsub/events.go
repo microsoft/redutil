@@ -54,12 +54,12 @@ func (e *eventEmitter) addHandlerToMap(ev EventType, h EventHandler, m map[Event
 	}
 }
 
-// Adds a handler that's executed once when an event is emitted.
+// Once adds a handler that's executed once when an event is emitted.
 func (e *eventEmitter) Once(ev EventType, h EventHandler) {
 	e.addHandlerToMap(ev, h, e.once)
 }
 
-// Adds a handler that's executed when an event happens.
+// On adds a handler that's executed when an event happens.
 func (e *eventEmitter) On(ev EventType, h EventHandler) {
 	e.addHandlerToMap(ev, h, e.listeners)
 }

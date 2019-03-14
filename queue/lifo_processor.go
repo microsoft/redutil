@@ -57,7 +57,7 @@ func (l *lifoProcessor) PullTo(cnx redis.Conn, src, dest string,
 	return bytes, nil
 }
 
-// Removes the first element from the source list and adds it to the end
+// Concat removes the first element from the source list and adds it to the end
 // of the destination list. ErrNil is returns when the source is empty.
 func (l *lifoProcessor) Concat(cnx redis.Conn, src, dest string) (err error) {
 	bytes, err := l.PullTo(cnx, src, dest, 0*time.Second)

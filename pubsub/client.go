@@ -115,7 +115,7 @@ func (c *Client) Listener(kind ListenerType, event string) *Listener {
 	return listener
 }
 
-// Gets the current client state.
+// GetState gets the current client state.
 func (c *Client) GetState() uint8 {
 	c.stateLock.Lock()
 	defer c.stateLock.Unlock()
@@ -319,7 +319,7 @@ func (c *Client) Subscribe(listener *Listener) {
 	c.tasks <- task{Listener: listener, Action: subscribeAction}
 }
 
-// Removes the listener from the list of subscribers. If it's the last one
+// Unsubscribe removes the listener from the list of subscribers. If it's the last one
 // listening to that Redis event, we unsubscribe entirely.
 func (c *Client) Unsubscribe(listener *Listener) {
 	listener.Active = false
