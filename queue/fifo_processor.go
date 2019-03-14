@@ -53,7 +53,7 @@ func (f *fifoProcessor) PullTo(cnx redis.Conn, src, dest string,
 	return bytes, nil
 }
 
-// Removes the first element from the source list and adds it to the end
+// Concat removes the first element from the source list and adds it to the end
 // of the destination list. ErrNil is returns when the source is empty.
 func (f *fifoProcessor) Concat(cnx redis.Conn, src, dest string) (err error) {
 	return rlConcat(cnx, src, dest)

@@ -79,7 +79,7 @@ func (q *BaseQueue) SetProcessor(processor Processor) {
 	q.processor = processor
 }
 
-// Takes all elements from the source queue and adds them to this one. This
+// Concat takes all elements from the source queue and adds them to this one. This
 // can be a long-running operation. If a persistent error is returned while
 // moving things, then it will be returned and the concat will stop, though
 // the concat operation can be safely resumed at any time.
