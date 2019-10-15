@@ -1,6 +1,8 @@
 package conn
 
 import (
+	"crypto/tls"
+	"net"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -56,6 +58,16 @@ func NewWithActiveLimit(param ConnectionParam, maxIdle int, maxActive int) (RedU
 	}
 
 	if param.UseCluster {
+		host, _, err := net.SplitHostPort(param.Address)
+		if err != nil {
+			panic(err)
+		}
+
+		options = append(options, redis.DialTLSConfig(&tls.Config{
+			InsecureSkipVerify: false,
+			ServerName:         host,
+		}))
+
 		return &redisc.Cluster{
 			StartupNodes: []string{param.Address},
 			DialOptions:  options,
