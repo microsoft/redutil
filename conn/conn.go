@@ -95,6 +95,6 @@ func connect(address string, options ...redis.DialOption) func() (redis.Conn, er
 
 func connectPool(maxIdle int, maxActive int) func(string, ...redis.DialOption) (*redis.Pool, error) {
 	return func(address string, options ...redis.DialOption) (*redis.Pool, error) {
-		return &redis.Pool{Dial: connect(address, options), MaxIdle: maxIdle, MaxActive: maxActive}, nil
+		return &redis.Pool{Dial: connect(address, options...), MaxIdle: maxIdle, MaxActive: maxActive}, nil
 	}
 }
