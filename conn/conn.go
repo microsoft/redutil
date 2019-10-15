@@ -63,7 +63,7 @@ func NewWithActiveLimit(param ConnectionParam, maxIdle int, maxActive int) (RedU
 		}, param.Policy
 	}
 
-	return &redis.Pool{Dial: connect(param.Address, options), MaxIdle: maxIdle, MaxActive: maxActive}, param.Policy
+	return &redis.Pool{Dial: connect(param.Address, options...), MaxIdle: maxIdle, MaxActive: maxActive}, param.Policy
 }
 
 // New makes and returns a pointer to a new Connector instance. It sets some
@@ -87,7 +87,7 @@ func New(param ConnectionParam, maxIdle int) (RedUtilPool, ReconnectPolicy) {
 // If an error is incurred either dialing the TCP connection, or sending the
 // `AUTH` command, then it will be returned immediately, and the client can be
 // considered useless.
-func connect(address string, options []redis.DialOption) func() (redis.Conn, error) {
+func connect(address string, options ...redis.DialOption) func() (redis.Conn, error) {
 	return func() (redis.Conn, error) {
 		return redis.Dial("tcp", address, options...)
 	}
